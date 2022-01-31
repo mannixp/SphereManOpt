@@ -22,7 +22,7 @@ optimises the magnetic field only, while
 
 optimises both the velocity and magnetic fields. To test the gradient approximation the function
 
-'Adjoint_Gradient_Test(X0,dBx0,*args)`
+`Adjoint_Gradient_Test(X0,dBx0,*args)`
 
 is used. Additional options of interest contained in FWD_Solve_PBox_IND_MHD.py are
 
