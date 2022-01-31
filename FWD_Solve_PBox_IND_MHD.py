@@ -5,7 +5,6 @@ from mpi4py import MPI # Import this before numpy
 import numpy as np
 import h5py,logging
 
-
 ##########################################################################
 # ~~~~~ General Routines ~~~~~~~~~~~~~
 ##########################################################################
@@ -762,6 +761,9 @@ def Compatib_Cond(X_FWD_DICT, domain, Rm, dt, Cost_function= "Final"):
 
 	return {'Bx':A,'By':B,'Bz':C};
 
+Adjoint_type = "Discrete";
+#Adjoint_type = "Continuous";
+
 def ADJ_Solve_IVP_Lin(X0, domain,Rm,dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, Cost_function= "Final"):	
 	"""
 	Driver program for Periodic Box Dynamo, which builds the forward solver object with options:
@@ -889,21 +891,26 @@ def ADJ_Solve_IVP_Lin(X0, domain,Rm,dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, Cost_f
 	#######################################################
 	# set initial conditions
 	#######################################################
-		
-	#X_FWD_DICT = {'A_fwd':A_SNAPS, 'B_fwd':B_SNAPS, 'C_fwd':C_SNAPS}
 	
-	#'''
-	G_A['c'] = -2.*X_FWD_DICT['A_fwd'][:,:,:,-1];
-	G_B['c'] = -2.*X_FWD_DICT['B_fwd'][:,:,:,-1]; 
-	G_C['c'] = -2.*X_FWD_DICT['C_fwd'][:,:,:,-1];
-	'''
+	#X_FWD_DICT = {'A_fwd':A_SNAPS, 'B_fwd':B_SNAPS, 'C_fwd':C_SNAPS}
+	if Adjoint_type == "Continuous":
+	
+		G_A['c'] = -2.*X_FWD_DICT['A_fwd'][:,:,:,-1];
+		G_B['c'] = -2.*X_FWD_DICT['B_fwd'][:,:,:,-1]; 
+		G_C['c'] = -2.*X_FWD_DICT['C_fwd'][:,:,:,-1];
+		
+		snapshot_index = -1; # Continuous 
 
-	X_DICT = Compatib_Cond(X_FWD_DICT, domain, Rm, dt,Cost_function);
+	elif Adjoint_type == "Discrete":
 
-	G_A['g'] = X_DICT['Bx']['g'];
-	G_B['g'] = X_DICT['By']['g'];
-	G_C['g'] = X_DICT['Bz']['g'];
-	'''
+		X_DICT = Compatib_Cond(X_FWD_DICT, domain, Rm, dt,Cost_function);
+
+		G_A['g'] = X_DICT['Bx']['g'];
+		G_B['g'] = X_DICT['By']['g'];
+		G_C['g'] = X_DICT['Bz']['g'];
+		
+		snapshot_index = -2; # Discrete due to shifting ofindicies
+
 	#######################################################
 	# evolution parameters
 	######################################################
@@ -930,8 +937,9 @@ def ADJ_Solve_IVP_Lin(X0, domain,Rm,dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, Cost_f
 	flow.add_property("abs(		   dx(nu_u) + dy(nu_v) + dz(nu_w) )", name='div_U');
 	#'''
 
+	# Outlined above
 	#snapshot_index = -2; # Discrete due to shifting ofindicies
-	snapshot_index = -1; # Continuous 
+	#snapshot_index = -1; # Continuous 
 	while IVP_ADJ.ok:
 
 		# Must leave this as it's needed for the dL/dU-gradient
@@ -960,26 +968,31 @@ def ADJ_Solve_IVP_Lin(X0, domain,Rm,dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, Cost_f
 	#######################################################
 
 	# For discrete adjoint undo LHS inversion of the last-step
-	'''
-	for f in [A_f,B_f,C_f]:
-		f.set_scales(domain.dealias, keep_data=False)	
-		f['g']=0.;
+	if Adjoint_type == "Discrete":
+		
+		for f in [A_f,B_f,C_f]:
+			f.set_scales(domain.dealias, keep_data=False)	
+			f['g']=0.;
 
-	A_f['g'] = dt*( G_A['g']/dt - (.5/Rm)*( G_A.differentiate('x').differentiate('x')['g'] + G_A.differentiate('y').differentiate('y')['g'] + G_A.differentiate('z').differentiate('z')['g'] ) );
-	B_f['g'] = dt*( G_B['g']/dt - (.5/Rm)*( G_B.differentiate('x').differentiate('x')['g'] + G_B.differentiate('y').differentiate('y')['g'] + G_B.differentiate('z').differentiate('z')['g'] ) );
-	C_f['g'] = dt*( G_C['g']/dt - (.5/Rm)*( G_C.differentiate('x').differentiate('x')['g'] + G_C.differentiate('y').differentiate('y')['g'] + G_C.differentiate('z').differentiate('z')['g'] ) );
-	'''
+		A_f['g'] = dt*( G_A['g']/dt - (.5/Rm)*( G_A.differentiate('x').differentiate('x')['g'] + G_A.differentiate('y').differentiate('y')['g'] + G_A.differentiate('z').differentiate('z')['g'] ) );
+		B_f['g'] = dt*( G_B['g']/dt - (.5/Rm)*( G_B.differentiate('x').differentiate('x')['g'] + G_B.differentiate('y').differentiate('y')['g'] + G_B.differentiate('z').differentiate('z')['g'] ) );
+		C_f['g'] = dt*( G_C['g']/dt - (.5/Rm)*( G_C.differentiate('x').differentiate('x')['g'] + G_C.differentiate('y').differentiate('y')['g'] + G_C.differentiate('z').differentiate('z')['g'] ) );
+		
+		Bx0 = Field_to_Vec(domain,A_f ,B_f ,C_f )
+	
+	else:
+		
+		Bx0 = Field_to_Vec(domain,G_A ,G_B ,G_C )
+	
+	Ux0 = Field_to_Vec(domain,nu_u,nu_v,nu_w); #
+
 	logger.info("\n\n--> Complete <--\n")
 
 	# Set to info level rather than the debug default
 	for h in root.handlers:
 		#h.setLevel("WARNING");
 		h.setLevel("INFO");
-	
-	#Bx0 = Field_to_Vec(domain,A_f ,B_f ,C_f )
-	Bx0 = Field_to_Vec(domain,G_A ,G_B ,G_C )
-	Ux0 = Field_to_Vec(domain,nu_u,nu_v,nu_w); #
-	#Ux0 = np.zeros(Bx0.shape); #
+
 	return np.concatenate( (Bx0,Ux0) );
 
 
