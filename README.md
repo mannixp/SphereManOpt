@@ -6,6 +6,5 @@ Combing this approach with an efficient line-search and both Wolfe conditions su
 
 Running the code requires an anaconda environment with the parallelised spectral code Dedalus installed. Having installed Dedalus and activated the relevant conda environment the optimisation code can be run and the results plotted by executing:
 
-'''
-./run_PBox_problem.sh
-'''
+
+`./run_PBox_problem.sh`
