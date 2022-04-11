@@ -83,7 +83,7 @@ def Plot_KinematicB_scalar_data(file_names,LEN,CAD,Normalised_B,Logscale_B):
 	plt.tight_layout(pad=1, w_pad=1.5)
 	fig.savefig(outfile, dpi=dpi);
 
-	plt.show()
+	#plt.show()
 
 	return None;
 
@@ -669,7 +669,7 @@ def Plot_UB_scalar_data_General(file_names,Legend_Names,LEN,CAD,Normalised_B,Log
 	
 	plt.tight_layout(pad=1, w_pad=1.5)
 	fig.savefig(outfile, dpi=dpi);
-	plt.show()
+	#plt.show()
 
 	return None;
 
@@ -1023,7 +1023,7 @@ def Plot_MAX_DivUB(filename,k=0):
 	plt.xlim([min(x),max(x)])
 	plt.tight_layout(pad=1, w_pad=1.5)
 	fig1.savefig(outfile1, dpi=dpi);
-	plt.show();
+	#plt.show();
 	#'''
 	return None;
 
@@ -1096,15 +1096,19 @@ if __name__ == "__main__":
 	except:
 
 		pass;		
-
+	
+	from DAL_PCF_MAIN import Plot_DAL_Progress
+	Plot_DAL_Progress('./DAL_PROGRESS.h5');
+	sys.exit()
 	##########################################################################
 	# Scalar_data filenames
 	##########################################################################	
 	#'''
 	#Scalar_data_filenames = ['Adjoint_scalar_data/Adjoint_scalar_data_s1.h5']
-	Scalar_data_filenames = ['scalar_data/scalar_data_s1.h5']
-	#Scalar_data_filenames = ['scalar_data_iter_9.h5']
-	
+	#Scalar_data_filenames = ['scalar_data/scalar_data_s1.h5']
+	import glob
+	Scalar_data_filenames = glob.glob('./scalar_data_iter_*.h5');#['scalar_data/scalar_data_s1.h5']
+
 	LEN = len(Scalar_data_filenames);
 	Plot_Cadence = 1;	
 	Normalised_B = False;
@@ -1118,7 +1122,9 @@ if __name__ == "__main__":
 	##########################################################################
 
 	#Checkpoints_filenames = ['Adjoint_CheckPoints/Adjoint_CheckPoints_s1.h5']
-	Checkpoints_filenames = ['CheckPoints/CheckPoints_s1.h5']
+	#Checkpoints_filenames = ['CheckPoints/CheckPoints_s1.h5']
+	#import glob
+	Checkpoints_filenames = glob.glob('./CheckPoints_iter_*.h5');
 
 	LEN = len(Checkpoints_filenames);
 	Plot_Cadence = 1;

@@ -1,4 +1,4 @@
-import sys,os;
+import sys,os,time;
 os.environ["OMP_NUM_THREADS"] = "1" # Improves performance apparently ????
 
 from mpi4py import MPI # Import this before numpy
@@ -9,7 +9,7 @@ import h5py,logging
 # ~~~~~ General Routines ~~~~~~~~~~~~~
 ##########################################################################
 
-def filter_field(field,frac=0.5):
+def filter_field(field,frac=0.25):
     
 	"""
 	Given a dedalus field object, set "frac" of the highest wave_number coefficients to zero
@@ -450,8 +450,8 @@ def FWD_Solve_Build_Lin(domain, Rm, dt, Ux0):
 
 	# Set to info level rather than the debug default
 	for h in root.handlers:
-		#h.setLevel("WARNING");
-		h.setLevel("INFO");
+		h.setLevel("WARNING");
+		#h.setLevel("INFO");
 
 	return IVP_FWD;
 
@@ -489,8 +489,8 @@ def FWD_Solve_IVP_Prep(Bx0,Ux0, domain,Rm,dt,  N_ITERS):
 	# Set to info level rather than the debug default
 	root = logging.root
 	for h in root.handlers:
-		#h.setLevel("WARNING");
-		h.setLevel("INFO");
+		h.setLevel("WARNING");
+		#h.setLevel("INFO");
 		#h.setLevel("DEBUG")
 	logger = logging.getLogger(__name__)
 
@@ -570,8 +570,8 @@ def FWD_Solve_IVP_Lin(X0, domain,Rm,dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, Cost_f
 	# Set to info level rather than the debug default
 	root = logging.root
 	for h in root.handlers:
-		#h.setLevel("WARNING");
-		h.setLevel("INFO");
+		h.setLevel("WARNING");
+		#h.setLevel("INFO");
 		#h.setLevel("DEBUG")
 	logger = logging.getLogger(__name__)
 
@@ -680,14 +680,40 @@ def FWD_Solve_IVP_Lin(X0, domain,Rm,dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, Cost_f
 
 			J_TRAP = flow.volume_average('J(B)');
 
+		'''
+		p = 1
+		print(dir(IVP_FWD.pencils[p]))
+
+
+		print( type(IVP_FWD.pencils[p].pre_left) )
+		print( type(IVP_FWD.pencils[p].pre_right) )
+		
+		print(IVP_FWD.pencils[p].pre_left.shape)
+		print(IVP_FWD.pencils[p].pre_right.shape)
+		
+		import matplotlib.pyplot as plt
+
+		plt.spy(IVP_FWD.pencils[p].pre_left)
+		plt.show()
+
+		plt.spy(IVP_FWD.pencils[p].pre_right)
+		plt.show()
+
+		sys.exit();	
+		'''
 	#######################################################
 
 	# final statistics
 	post.merge_process_files("CheckPoints", cleanup=True, comm=MPI.COMM_WORLD);
 	post.merge_process_files("scalar_data", cleanup=True, comm=MPI.COMM_WORLD);
+	time.sleep(1);
 	logger.info("\n\n--> Complete <--\n")
 
 	logger.info('J(Bx0) = %e'%J_TRAP );
+
+	for h in root.handlers:
+		#h.setLevel("WARNING");
+		h.setLevel("INFO");
 
 	return (-1.)*J_TRAP;
 
@@ -759,6 +785,10 @@ def Compatib_Cond(X_FWD_DICT, domain, Rm, dt, Cost_function= "Final"):
 	for f in [A,B,C]:
 		f.set_scales(domain.dealias, keep_data=True);
 
+	for h in root.handlers:
+		h.setLevel("WARNING");
+		#h.setLevel("INFO"); #h.setLevel("DEBUG")
+
 	return {'Bx':A,'By':B,'Bz':C};
 
 Adjoint_type = "Discrete";
@@ -785,8 +815,8 @@ def ADJ_Solve_IVP_Lin(X0, domain,Rm,dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, Cost_f
 	# Set to info level rather than the debug default
 	root = logging.root
 	for h in root.handlers:
-		h.setLevel("WARNING");
-		#h.setLevel("INFO"); #h.setLevel("DEBUG")
+		#h.setLevel("WARNING");
+		h.setLevel("INFO"); #h.setLevel("DEBUG")
 	logger = logging.getLogger(__name__)
 
 	#######################################################
@@ -994,13 +1024,14 @@ def ADJ_Solve_IVP_Lin(X0, domain,Rm,dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, Cost_f
 		h.setLevel("INFO");
 
 	return np.concatenate( (Bx0,Ux0) );
+	#return np.concatenate( (Bx0,np.zeros(Ux0.shape)) );
 
 
 if __name__ == "__main__":
 
 
-	Rm = 1.; dt = 0.002; Npts = 24; 
-	N_ITERS = 500; N_SUB_ITERS = N_ITERS//1;
+	Rm = 1.; dt = 1e-03; Npts = 24; 
+	N_ITERS = int(Rm/dt); N_SUB_ITERS = N_ITERS//1;
 	X_domain = (0.,2.*np.pi); M_0 = 1.; E_0 = 1.; Noise = True;
 
 	Cost_function = "Final"; 
@@ -1013,18 +1044,20 @@ if __name__ == "__main__":
 
 	args = [domain,Rm,dt,   N_ITERS,N_SUB_ITERS, X_FWD_DICT, Cost_function];
 
-	'''
+	#'''
 	# FWD Solve
-	J_obj = FWD_Solve_IVP_Lin(X0,*args);
+	#J_obj = FWD_Solve_IVP_Lin(X0,*args);
 
 	# ADJ Solve
-	dJdB0 = ADJ_Solve_IVP_Lin(X0,*args);
-	sys.exit()
-	'''
+	#dJdB0 = ADJ_Solve_IVP_Lin(X0,*args);
+	#sys.exit()
+	#'''
 
-	from DAL_PCF_MAIN import DAL_LOOP
-	#DAL_LOOP(X0,[M_0], *args)
-	DAL_LOOP(X0,[M_0,E_0], *args)
+	from DAL_PCF_MAIN import DAL_LOOP_OLD_VER as DAL_LOOP
+	DAL_LOOP(X0,[M_0,E_0], *args); # Remember to return (dJ_dB0, 0) only
+	
+	#from DAL_PCF_MAIN import DAL_LOOP
+	#DAL_LOOP(X0,[M_0,E_0], *args)
 
 	'''
 	from TestGrad import Adjoint_Gradient_Test
@@ -1032,6 +1065,6 @@ if __name__ == "__main__":
 	XdomainX, dBx0, dUx  = Generate_IC(Npts,X_domain,M_0,Noise);
 	ZEROS = np.zeros(dUx.shape)
 	#dX0 = np.concatenate((dBx0 ,ZEROS));
-	#dX0 = np.concatenate((ZEROS,dUx  ));
+	dX0 = np.concatenate((ZEROS,dUx  ));
 	Adjoint_Gradient_Test(X0,dX0,	*args)
 	'''

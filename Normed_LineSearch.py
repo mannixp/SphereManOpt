@@ -2,8 +2,12 @@ import os;
 os.environ["OMP_NUM_THREADS"] = "1" # Improves performance apparently ????
 import numpy as np
 
-from warnings import warn
-#from scipy.optimize import minpack2
+from warnings       import warn
+#from scipy.optimize import _minpack2 as minpack2
+from scipy.optimize import minpack2
+#from . import _minpack as minpack
+
+from FWD_Solve_PBox_IND_MHD import Inner_Prod,Inner_Prod_3
 
 class LineSearchWarning(RuntimeWarning):
     pass
@@ -14,7 +18,6 @@ class LineSearchWarning(RuntimeWarning):
 ##########################################################################
 def Norm_constraint(domain, w_k, dJ_k,   alpha,M_0):
 
-    from FWD_Solve_PBox_IND_MHD import Inner_Prod_3
     """
     Enforce the normalisation constraint:
 
@@ -93,9 +96,7 @@ def Norm_constraint(domain, w_k, dJ_k,   alpha,M_0):
 # Armijo line and scalar searches 
 # Ammended to included norm constraint ||xk + s*pk ||_2 = M_0^(1/2)
 #------------------------------------------------------------------------------
-def line_search_armijo(f, Constraints,  xk,pk,gfk,  old_fval, args=(), c1=1e-4, alpha0=1):
-    
-    from FWD_Solve_PBox_IND_MHD import Inner_Prod
+def line_search_armijo(f, con , Constraints,  xk,pk,gfk,  old_fval, args=(), c1=1e-4, alpha0=1):
 
     """Minimize over alpha, the function ``phi(alpha) = f(xk+alpha pk)``.
     Parameters
@@ -139,30 +140,176 @@ def line_search_armijo(f, Constraints,  xk,pk,gfk,  old_fval, args=(), c1=1e-4, 
     xk = np.atleast_1d(xk)
     fc = [0]
 
+    #'''
+    # Modified
     def phi(alpha1):
         fc[0] += 1;
+        
+        # Split the vector + apply norm constraints
+        XK  = np.split(xk,2); # Must not update xk nor pk here!!, ensure this does not update the reference all the time
+        PK  = np.split(pk,2);
+        EQs = Constraints;
+        
+        if   con == 0:
+            
+            XKP1 = Norm_constraint(domain, XK[con],PK[con], alpha1, EQs[con])[0];    
+            return f( np.concatenate((XKP1,XK[1])) , *args)
+        
+        elif con == 1:
+
+            XKP1 = Norm_constraint(domain, XK[con],PK[con], alpha1, EQs[con])[0];    
+            return f( np.concatenate((XK[0],XKP1)) , *args)
+        else:
+            
+            for i in range(len(EQs)):
+                XK[i] = Norm_constraint(domain, XK[i],PK[i], alpha1, EQs[i])[0];    
+
+            return f( np.concatenate((XK[0],XK[1])) , *args)  
+
+    '''
+
+    # Original
+    def phi(alpha1):
+        fc[0] += 1;
+        
         # Split the vector + apply norm constraints
         XK  = np.split(xk,2); # Must not update xk nor pk here!!, ensure this does not update the reference all the time
         PK  = np.split(pk,2);
         EQs = Constraints;
         for i in range(len(EQs)):
-            XK[i] = Norm_constraint(domain, XK[i],PK[i], alpha1, EQs[i])[0];
+            XK[i] = Norm_constraint(domain, XK[i],PK[i], alpha1, EQs[i])[0];    
 
-        return f( np.concatenate((XK[0],XK[1])) , *args)
-
+        return f( np.concatenate((XK[0],XK[1])) , *args)    
+    '''
+     
     if old_fval is None:
         phi0 = phi(0.)
     else:
         phi0 = old_fval  # compute f(xk) -- done in past loop
 
-    '''def derphi(alpha1):
-        True_pk = xk - Norm_constraint(domain, xk,pk,alpha1,M_0)[0]
-        return Inner_Prod(domain,True_pk,gfk);
-    alpha, phi1 = scalar_search_armijo(phi, phi0, derphi, c1=c1,
-                                       alpha0=alpha0)'''
+    # Modified 
+    if  (con == 0) or (con == 1):
+        hgk = (-1.)*np.split(pk, 2)[con];
+        gfk =       np.split(gfk,2)[con];
+        derphi0 = Inner_Prod_3(domain,gfk,hgk);
+    else:
+        hgk = (-1.)*pk;
+        derphi0 = Inner_Prod(domain,gfk,hgk);
 
-    #True_pk = xk - Norm_constraint(domain, xk,pk, alpha0,M_0)[0]
-    derphi0 = (-1.)*Inner_Prod(domain,pk,gfk);
+    # Original
+    #hgk = (-1.)*pk;
+    #derphi0 = Inner_Prod(domain,gfk,hgk);
+
+    alpha, phi1 = scalar_search_armijo(phi, phi0, derphi0, c1=c1,
+                                       alpha0=alpha0)
+    return alpha, fc[0], phi1
+
+def line_search_armijo_old_ver(f, Constraints,  xk,pk,gfk,  old_fval, args=(), c1=1e-4, alpha0=1):
+
+    """Minimize over alpha, the function ``phi(alpha) = f(xk+alpha pk)``.
+    Parameters
+    ----------
+    f : callable
+        Function to be minimized.
+    xk : array_like
+        Current point.
+    xpk: array_like
+        Derivative d/dr(xk) -- of current point    
+    pk : array_like
+        **like** the Search direction.
+        x_k+1 = x_k*cos(alpha) + d*sin(alpha);
+        x_k+1 = x_k + [x_k*(cos(alpha) -1) + d*sin(alpha)];
+        x_k+1 = x_k +  p_k(alpha);
+        Currently using p_k ~ alpha*d;
+    dr_pk : array_like
+        Partiral derivative w.r.t to radial direction r of search direction pk at point `xk`.     
+    gfk : array_like
+        Gradient of `f` at point `xk`.   
+    old_fval : float
+        Value of `f` at point `xk`.
+    args : tuple, optional
+        Optional arguments.
+    c1 : float, optional
+        Value to control stopping criterion.
+    alpha0 : scalar, optional
+        Value of `alpha` at start of the optimization.
+    Returns
+    -------
+    alpha
+    f_count
+    f_val_at_alpha
+    Notes
+    -----
+    Uses the interpolation algorithm (Armijo backtracking) as suggested by
+    Wright and Nocedal in 'Numerical Optimization', 1999, pp. 56-57
+    """
+    domain = args[0];
+
+    xk = np.atleast_1d(xk)
+    fc = [0]
+
+    '''
+    # Modified
+    def phi(alpha1):
+        fc[0] += 1;
+        
+        # Split the vector + apply norm constraints
+        XK  = np.split(xk,2); # Must not update xk nor pk here!!, ensure this does not update the reference all the time
+        PK  = np.split(pk,2);
+        EQs = Constraints;
+        
+        if   con == 0:
+            
+            XKP1 = Norm_constraint(domain, XK[con],PK[con], alpha1, EQs[con])[0];    
+            return f( np.concatenate((XKP1,XK[1])) , *args)
+        
+        elif con == 1:
+
+            XKP1 = Norm_constraint(domain, XK[con],PK[con], alpha1, EQs[con])[0];    
+            return f( np.concatenate((XK[0],XKP1)) , *args)
+        else:
+            
+            for i in range(len(EQs)):
+                XK[i] = Norm_constraint(domain, XK[i],PK[i], alpha1, EQs[i])[0];    
+
+            return f( np.concatenate((XK[0],XK[1])) , *args)  
+
+    '''
+
+    # Original
+    def phi(alpha1):
+        fc[0] += 1;
+        
+        # Split the vector + apply norm constraints
+        XK  = np.split(xk,2); # Must not update xk nor pk here!!, ensure this does not update the reference all the time
+        PK  = np.split(pk,2);
+        EQs = Constraints;
+        for i in range(len(EQs)):
+            XK[i] = Norm_constraint(domain, XK[i],PK[i], alpha1, EQs[i])[0];    
+
+        return f( np.concatenate((XK[0],XK[1])) , *args)    
+    #'''
+     
+    if old_fval is None:
+        phi0 = phi(0.)
+    else:
+        phi0 = old_fval  # compute f(xk) -- done in past loop
+
+    '''    
+    # Modified 
+    if  (con == 0) or (con == 1):
+        hgk = (-1.)*np.split(pk, 2)[con];
+        gfk =       np.split(gfk,2)[con];
+        derphi0 = Inner_Prod_3(domain,gfk,hgk);
+    else:
+        hgk = (-1.)*pk;
+        derphi0 = Inner_Prod(domain,gfk,hgk);
+    '''
+        
+    # Original
+    hgk = (-1.)*pk;
+    derphi0 = Inner_Prod(domain,gfk,hgk);
+
     alpha, phi1 = scalar_search_armijo(phi, phi0, derphi0, c1=c1,
                                        alpha0=alpha0)
     return alpha, fc[0], phi1
@@ -177,7 +324,30 @@ def scalar_search_armijo(phi, phi0, derphi0, c1=1e-4, alpha0=1, amin=1e-06):
     alpha
     phi1
     """
+    
     phi_a0 = phi(alpha0)
+
+    '''
+    # 1) Compute quadratic minimiser
+    alpha_st = _quadmin(0., phi0, derphi0, alpha0, phi_a0)
+
+    # 2) Check the step-length is in the feasible region
+    if (amin < alpha_st < alpha0) and (alpha_st < np.pi):
+        #print("\n STEP SIZE In RANGE (amin,amax)")
+        
+        # 3) check that the minimiser is indeed better 
+        phi_st = phi(alpha_st);
+        #print("C1 phi_n+1 = %e < phi_n   = %e \n"%(phi_st,phi_a0) );
+        #print("C2 phi_n+1 = %e < wolfe I = %e \n"%(phi_st,phi0 + c1*alpha_st*derphi0) );
+        if (phi_st < phi_a0) and (phi_st <= phi0 + c1*alpha_st*derphi0):
+            print("C1 Quad min accepted: phi_n+1 = %e < phi_n = %e "%(phi_st,phi_a0) );
+            print("C2 phi_n+1 = %e < wolfe I = %e             \n"%(phi_st,phi0 + c1*alpha_st*derphi0) );
+            return alpha_st,phi_st;
+        else:
+            print(" \n")    
+    '''    
+
+    # 4) Check Wolfe I condition
     if phi_a0 <= phi0 + c1*alpha0*derphi0:
         return alpha0, phi_a0
 
@@ -222,68 +392,238 @@ def scalar_search_armijo(phi, phi0, derphi0, c1=1e-4, alpha0=1, amin=1e-06):
 
 
 #------------------------------------------------------------------------------
-# Wolfe I & II line and scalar searches 
-# Ammended to included norm constraint ||xk + s*pk ||_2 = M_0^(1/2)
+# Minpack's Wolfe line and scalar searches
+# 
+# MINPACK-1 Project. June 1983.
+# Argonne National Laboratory.
+# Jorge J. More' and David J. Thuente.
+#
+# MINPACK-2 Project. November 1993.
+# Argonne National Laboratory and University of Minnesota.
+# Brett M. Averick, Richard G. Carter, and Jorge J. More'.
 #------------------------------------------------------------------------------
 
-def line_search_wolfe2(f, myfprime, xk, pk, gfk=None, old_fval=None,
-                       old_old_fval=None, args=(), c1=1e-4, c2=0.9, amax=None,
-                       extra_condition=None, maxiter=10):
-    """Find alpha that satisfies strong Wolfe conditions.
+def line_search_wolfe1(f, fprime, Constraints, xk, pk, gfk=None,old_fval=None, old_old_fval=None,args=(),c1=1e-4,c2=0.9,amax=50,amin=1e-6,xtol=1e-14):
+
+	"""
+	As `scalar_search_wolfe1` but do a line search to direction `pk`
+	Parameters
+	----------
+	f : callable
+		Function `f(x)`
+	fprime : callable
+		Gradient of `f`
+	xk : array_like
+		Current point
+	pk : array_like
+		Search direction
+	
+	gfk : array_like, optional
+		Gradient of `f` at point `xk`
+	old_fval : float, optional
+		Value of `f` at point `xk`
+	old_old_fval : float, optional
+		Value of `f` at point preceding `xk`
+	
+	The rest of the parameters are the same as for `scalar_search_wolfe1`.
+	
+	Returns
+	-------
+	stp, f_count, g_count, fval, old_fval
+		As in `line_search_wolfe1`
+	gval : array
+		Gradient of `f` at the final point
+	
+	"""
+
+	domain = args[0];
+
+	if gfk is None:
+		gfk = fprime(xk, *args)
+
+	# Declares these as arrays, to allow mutable/pass by reference to phi,derphi    
+	gval = [gfk]
+	gc = [0]
+	fc = [0]
+
+	def phi(s):
+		fc[0] += 1; # Increment counter
+
+		# Split the vector + apply norm constraints
+		XK  = np.split(xk,2); # Must not update xk nor pk here!!, ensure this does not update the reference all the time
+		PK  = np.split(pk,2);
+		for i in range(len(Constraints)):
+			XK[i] = Norm_constraint(domain, XK[i],PK[i], s, Constraints[i])[0];
+
+		XK_new = np.concatenate((XK[0],XK[1]));   
+		return f( XK_new, *args)
+
+	def derphi(s):
+		gc[0] += 1; # Increment counter
+
+		# Split the vector + apply norm constraints
+		XK  = np.split(xk,2); # Must not update xk nor pk here!!, ensure this does not update the reference all the time
+		PK  = np.split(pk,2);
+		for i in range(len(Constraints)):
+			XK[i] = Norm_constraint(domain, XK[i],PK[i], s, Constraints[i])[0];
+
+		XK_new = np.concatenate((XK[0],XK[1]));    
+		gval[0] = fprime( XK_new, *args)
+
+		#return np.dot(gval[0], pk); # Use correct inner product
+		return (-1.)*Inner_Prod(domain,pk,gval[0])
+
+	#derphi0 = np.dot(gfk, pk); # Use correct inner product
+	derphi0 = (-1.)*Inner_Prod(domain,pk,gfk);
+
+	stp, fval, old_fval = scalar_search_wolfe1(phi, derphi, old_fval, old_old_fval, derphi0,c1=c1, c2=c2, amax=amax, amin=amin, xtol=xtol)
+
+	return stp, fc[0], gc[0], fval, old_fval, gval[0];
+
+def scalar_search_wolfe1(phi, derphi, phi0=None, old_phi0=None, derphi0=None,				 			 c1=1e-4,c2=0.9,amax=50,amin=1e-6,xtol=1e-14):
+    """
+    Scalar function search for alpha that satisfies strong Wolfe conditions
+    alpha > 0 is assumed to be a descent direction.
     Parameters
     ----------
-    f : callable f(x,*args)
-        Objective function.
-    myfprime : callable f'(x,*args)
-        Objective function gradient.
-    xk : ndarray
-        Starting point.
-    pk : ndarray
-        Search direction.
-    gfk : ndarray, optional
-        Gradient value for x=xk (xk being the current parameter
-        estimate). Will be recomputed if omitted.
-    old_fval : float, optional
-        Function value for x=xk. Will be recomputed if omitted.
-    old_old_fval : float, optional
-        Function value for the point preceding x=xk.
-    args : tuple, optional
-        Additional arguments passed to objective function.
+    phi : callable phi(alpha)
+        Function at point `alpha`
+    derphi : callable phi'(alpha)
+        Objective function derivative. Returns a scalar.
+    phi0 : float, optional
+        Value of phi at 0
+    old_phi0 : float, optional
+        Value of phi at previous point
+    derphi0 : float, optional
+        Value derphi at 0
     c1 : float, optional
         Parameter for Armijo condition rule.
     c2 : float, optional
         Parameter for curvature condition rule.
+    amax, amin : float, optional
+        Maximum and minimum step size
+    xtol : float, optional
+        Relative tolerance for an acceptable step.
+    Returns
+    -------
+    alpha : float
+        Step size, or None if no suitable step was found
+    phi : float
+        Value of `phi` at the new point `alpha`
+    phi0 : float
+        Value of `phi` at `alpha=0`
+    Notes
+    -----
+    Uses routine DCSRCH from MINPACK.
+    """
+
+    if phi0 is None:
+        phi0 = phi(0.)
+    if derphi0 is None:
+        derphi0 = derphi(0.)
+
+    if old_phi0 is not None and derphi0 != 0:
+        alpha1 = min(1.0, 1.01*2*(phi0 - old_phi0)/derphi0)
+        if alpha1 < 0:
+            alpha1 = 1.0
+    else:
+        alpha1 = 1.0
+
+    phi1 = phi0
+    derphi1 = derphi0
+    isave = np.zeros((2,), np.intc)
+    dsave = np.zeros((13,), float)
+    task = b'START'
+
+    maxiter = 100
+    for i in range(maxiter):
+        stp, phi1, derphi1, task = minpack2.dcsrch(alpha1, phi1, derphi1,
+                                                   c1, c2, xtol, task,
+                                                   amin, amax, isave, dsave)
+        print("stp   = ",stp);
+        print("alpha1= ",alpha1);
+        print("Stp error = ",abs(stp-alpha1)/stp);
+        print("task ",task)
+        if task[:2] == b'FG':
+            alpha1 = stp
+            phi1 = phi(stp)
+            derphi1 = derphi(stp)
+        else:
+            break
+    else:
+        # maxiter reached, the line search did not converge
+        stp = None
+
+    if task[:5] == b'ERROR' or task[:4] == b'WARN':
+        stp = None  # failed
+
+    print("stp  = ",stp );
+    print("phi  = ",phi );
+    print("phi0 = ",phi0);    
+    return stp, phi1, phi0;
+
+
+#------------------------------------------------------------------------------
+# Minpack's Wolfe line and scalar searches
+#------------------------------------------------------------------------------
+
+
+def line_search_wolfe2(f, myfprime, Constraints, xk, pk, gfk=None, old_fval=None,old_old_fval=None, args=(), c1=1e-4, c2=0.9, amax=None, extra_condition=None, maxiter=10):
+    """Find alpha that satisfies strong Wolfe conditions.
+    Parameters
+    ----------
+    f : callable f(x,*args)
+    Objective function.
+    myfprime : callable f'(x,*args)
+    Objective function gradient.
+    xk : ndarray
+    Starting point.
+    pk : ndarray
+    Search direction.
+    gfk : ndarray, optional
+    Gradient value for x=xk (xk being the current parameter
+    estimate). Will be recomputed if omitted.
+    old_fval : float, optional
+    Function value for x=xk. Will be recomputed if omitted.
+    old_old_fval : float, optional
+    Function value for the point preceding x=xk.
+    args : tuple, optional
+    Additional arguments passed to objective function.
+    c1 : float, optional
+    Parameter for Armijo condition rule.
+    c2 : float, optional
+    Parameter for curvature condition rule.
     amax : float, optional
-        Maximum step size
+    Maximum step size
     extra_condition : callable, optional
-        A callable of the form ``extra_condition(alpha, x, f, g)``
-        returning a boolean. Arguments are the proposed step ``alpha``
-        and the corresponding ``x``, ``f`` and ``g`` values. The line search
-        accepts the value of ``alpha`` only if this
-        callable returns ``True``. If the callable returns ``False``
-        for the step length, the algorithm will continue with
-        new iterates. The callable is only called for iterates
-        satisfying the strong Wolfe conditions.
+    A callable of the form ``extra_condition(alpha, x, f, g)``
+    returning a boolean. Arguments are the proposed step ``alpha``
+    and the corresponding ``x``, ``f`` and ``g`` values. The line search
+    accepts the value of ``alpha`` only if this
+    callable returns ``True``. If the callable returns ``False``
+    for the step length, the algorithm will continue with
+    new iterates. The callable is only called for iterates
+    satisfying the strong Wolfe conditions.
     maxiter : int, optional
-        Maximum number of iterations to perform.
+    Maximum number of iterations to perform.
     Returns
     -------
     alpha : float or None
-        Alpha for which ``x_new = x0 + alpha * pk``,
-        or None if the line search algorithm did not converge.
+    Alpha for which ``x_new = x0 + alpha * pk``,
+    or None if the line search algorithm did not converge.
     fc : int
-        Number of function evaluations made.
+    Number of function evaluations made.
     gc : int
-        Number of gradient evaluations made.
+    Number of gradient evaluations made.
     new_fval : float or None
-        New function value ``f(x_new)=f(x0+alpha*pk)``,
-        or None if the line search algorithm did not converge.
+    New function value ``f(x_new)=f(x0+alpha*pk)``,
+    or None if the line search algorithm did not converge.
     old_fval : float
-        Old function value ``f(x0)``.
+    Old function value ``f(x0)``.
     new_slope : float or None
-        The local slope along the search direction at the
-        new value ``<myfprime(x_new), pk>``,
-        or None if the line search algorithm did not converge.
+    The local slope along the search direction at the
+    new value ``<myfprime(x_new), pk>``,
+    or None if the line search algorithm did not converge.
     Notes
     -----
     Uses the line search algorithm to enforce strong Wolfe
@@ -303,38 +643,60 @@ def line_search_wolfe2(f, myfprime, xk, pk, gfk=None, old_fval=None,
     >>> line_search(obj_func, obj_grad, start_point, search_gradient)
     (1.0, 2, 1, 1.1300000000000001, 6.13, [1.6, 1.4])
     """
+    domain = args[0];
+
     fc = [0]
     gc = [0]
     gval = [None]
     gval_alpha = [None]
 
-    def phi(alpha):
-        fc[0] += 1
-        return f(xk + alpha * pk, *args)
+    def phi(s):
+        fc[0] += 1; # Increment counter
 
-    if isinstance(myfprime, tuple):
-        def derphi(alpha):
-            fc[0] += len(xk) + 1
-            eps = myfprime[1]
-            fprime = myfprime[0]
-            newargs = (f, eps) + args
-            gval[0] = fprime(xk + alpha * pk, *newargs)  # store for later use
-            gval_alpha[0] = alpha
-            return np.dot(gval[0], pk)
-    else:
-        fprime = myfprime
+        # Split the vector + apply norm constraints
+        XK  = np.split(xk,2); # Must not update xk nor pk here!!, ensure this does not update the reference all the time
+        PK  = np.split(pk,2);
+        for i in range(len(Constraints)):
+            XK[i] = Norm_constraint(domain, XK[i],PK[i], s, Constraints[i])[0]; # As second indice is the negative tangent gradient
 
-        def derphi(alpha):
-            gc[0] += 1
-            gval[0] = fprime(xk + alpha * pk, *args)  # store for later use
-            gval_alpha[0] = alpha
-            return np.dot(gval[0], pk)
+        XK_new = np.concatenate((XK[0],XK[1]));   
+        return f( XK_new, *args)
+
+    fprime = myfprime
+
+    def derphi(s):
+        if s != 0.0:
+
+            gc[0] += 1; # Increment counter
+
+            # Split the vector + apply norm constraints
+            XK  = np.split(xk,2); # Must not update xk nor pk here!!, ensure this does not update the reference all the time
+            PK  = np.split(pk,2);
+            for i in range(len(Constraints)):
+                XK[i] = Norm_constraint(domain, XK[i],PK[i], s, Constraints[i])[0]; # As second indice is the negative tangent gradient
+
+            XK_new = np.concatenate((XK[0],XK[1]));    
+            gval[0] = fprime( XK_new, *args)
+            gval_alpha[0] = s;
+
+            dp_da = (-1.)*XK_new*np.sin(s) + (-1.)*pk*np.cos(s); # hg_k = -1*pk
+
+            DERPHI = Inner_Prod(domain,gval[0],dp_da)
+            print('\n\n derphi(s) = ',DERPHI,'\n\n');
+            return DERPHI;
+
+        elif float(s) == 0.0:
+
+            dp_da = (-1.)*pk; 
+            DERPHI = Inner_Prod(domain,gfk,dp_da)
+            print('\n\n derphi0 = ',DERPHI,'\n\n');
+            return DERPHI; # hg_k = -1*pk
 
     if gfk is None:
         gfk = fprime(xk, *args)
-    derphi0 = np.dot(gfk, pk)
+    derphi0 = derphi(0.)  
 
-    if extra_condition is not None:
+    if extra_condition is not None: #???
         # Add the current gradient as argument, to avoid needless
         # re-evaluation
         def extra_condition2(alpha, phi):
@@ -345,9 +707,7 @@ def line_search_wolfe2(f, myfprime, xk, pk, gfk=None, old_fval=None,
     else:
         extra_condition2 = None
 
-    alpha_star, phi_star, old_fval, derphi_star = scalar_search_wolfe2(
-            phi, derphi, old_fval, old_old_fval, derphi0, c1, c2, amax,
-            extra_condition2, maxiter=maxiter)
+    alpha_star, phi_star, old_fval, derphi_star = scalar_search_wolfe2(phi, derphi, old_fval, old_old_fval, derphi0, c1, c2, amax,extra_condition2, maxiter=maxiter)
 
     if derphi_star is None:
         warn('The line search algorithm did not converge', LineSearchWarning)
@@ -361,10 +721,7 @@ def line_search_wolfe2(f, myfprime, xk, pk, gfk=None, old_fval=None,
     return alpha_star, fc[0], gc[0], phi_star, old_fval, derphi_star
 
 
-def scalar_search_wolfe2(phi, derphi, phi0=None,
-                         old_phi0=None, derphi0=None,
-                         c1=1e-4, c2=0.9, amax=None,
-                         extra_condition=None, maxiter=10):
+def scalar_search_wolfe2(phi, derphi, phi0=None,old_phi0=None, derphi0=None,c1=1e-4, c2=0.9, amax=None,extra_condition=None, maxiter=10):
     """Find alpha that satisfies strong Wolfe conditions.
     alpha > 0 is assumed to be a descent direction.
     Parameters
@@ -420,22 +777,31 @@ def scalar_search_wolfe2(phi, derphi, phi0=None,
         derphi0 = derphi(0.)
 
     alpha0 = 0
+    #'''
     if old_phi0 is not None and derphi0 != 0:
         alpha1 = min(1.0, 1.01*2*(phi0 - old_phi0)/derphi0)
+        #alpha1 = min(amax, 2*(phi0 - old_phi0)/derphi0)
     else:
         alpha1 = 1.0
+        #alpha1 = amax
 
     if alpha1 < 0:
         alpha1 = 1.0
+        #alpha1 = amax
 
+    # Should take care of the angle condition on alpha    
     if amax is not None:
-        alpha1 = min(alpha1, amax)
-
-    phi_a1 = phi(alpha1)
+        alpha1 = min(alpha1, amax); 
+    
+    alpha1 = 0.5*amax;
+    phi_a1 = phi(alpha1); 
     #derphi_a1 = derphi(alpha1) evaluated below
 
+    alpha_1 = _quadmin(alpha0, phi0, derphi0, alpha1, phi_a1)
+    phi_a1 = phi(alpha1); print("alpha1 =",alpha1)
+
     phi_a0 = phi0
-    derphi_a0 = derphi0
+    derphi_a0 = derphi0;
 
     if extra_condition is None:
         extra_condition = lambda alpha, phi: True
@@ -461,6 +827,7 @@ def scalar_search_wolfe2(phi, derphi, phi0=None,
         not_first_iteration = i > 0
         if (phi_a1 > phi0 + c1 * alpha1 * derphi0) or \
            ((phi_a1 >= phi_a0) and not_first_iteration):
+            print("Satisfies cond (i)")
             alpha_star, phi_star, derphi_star = \
                         _zoom(alpha0, alpha1, phi_a0,
                               phi_a1, derphi_a0, phi, derphi,
@@ -469,6 +836,7 @@ def scalar_search_wolfe2(phi, derphi, phi0=None,
 
         derphi_a1 = derphi(alpha1)
         if (abs(derphi_a1) <= -c2*derphi0):
+            print("Satisfies cond (ii)")
             if extra_condition(alpha1, phi_a1):
                 alpha_star = alpha1
                 phi_star = phi_a1
@@ -476,10 +844,16 @@ def scalar_search_wolfe2(phi, derphi, phi0=None,
                 break
 
         if (derphi_a1 >= 0):
+            print("Satisfies cond (iii)"); # Correct but I don't understand
             alpha_star, phi_star, derphi_star = \
                         _zoom(alpha1, alpha0, phi_a1,
                               phi_a0, derphi_a1, phi, derphi,
                               phi0, derphi0, c1, c2, extra_condition)
+            '''
+            alpha_star, phi_star, derphi_star = \
+                        _zoom(alpha0, alpha1, phi_a0,
+                              phi_a1, derphi_a0, phi, derphi,
+                              phi0, derphi0, c1, c2, extra_condition)'''            
             break
 
         alpha2 = 2 * alpha1  # increase by factor of two on each iteration
@@ -489,7 +863,7 @@ def scalar_search_wolfe2(phi, derphi, phi0=None,
         alpha1 = alpha2
         phi_a0 = phi_a1
         phi_a1 = phi(alpha1)
-        derphi_a0 = derphi_a1
+        derphi_a0 = derphi_a1; print("alpha =",alpha1)
 
     else:
         # stopping test maxiter reached
@@ -553,8 +927,7 @@ def _quadmin(a, fa, fpa, b, fb):
     return xmin
 
 
-def _zoom(a_lo, a_hi, phi_lo, phi_hi, derphi_lo,
-          phi, derphi, phi0, derphi0, c1, c2, extra_condition):
+def _zoom(a_lo, a_hi, phi_lo, phi_hi, derphi_lo,phi, derphi, phi0, derphi0, c1, c2, extra_condition):
     """Zoom stage of approximate linesearch satisfying strong Wolfe conditions.
     
     Part of the optimization algorithm in `scalar_search_wolfe2`.
@@ -572,6 +945,7 @@ def _zoom(a_lo, a_hi, phi_lo, phi_hi, derphi_lo,
     phi_rec = phi0
     a_rec = 0
     while True:
+        print("IN ZOOM WHILE LOOP .... (a_lo,a_hi) = (%e,%e)\n"%(a_lo,a_hi))
         # interpolate to find a trial step length between a_lo and
         # a_hi Need to choose interpolation here. Use cubic
         # interpolation and then if the result is within delta *
@@ -602,10 +976,11 @@ def _zoom(a_lo, a_hi, phi_lo, phi_hi, derphi_lo,
             a_j = _quadmin(a_lo, phi_lo, derphi_lo, a_hi, phi_hi)
             if (a_j is None) or (a_j > b-qchk) or (a_j < a+qchk):
                 a_j = a_lo + 0.5*dalpha
+                print("Just reducing alpha as _quadmin didn't work",a_j)
 
         # Check new value of a_j
 
-        phi_aj = phi(a_j)
+        phi_aj = phi(a_j); print("phi_aj %e > phi0 %e + c1*a_j*derphi0 %e "%(phi_aj,phi0,c1*a_j*derphi0));
         if (phi_aj > phi0 + c1*a_j*derphi0) or (phi_aj >= phi_lo):
             phi_rec = phi_hi
             a_rec = a_hi
@@ -636,4 +1011,5 @@ def _zoom(a_lo, a_hi, phi_lo, phi_hi, derphi_lo,
             val_star = None
             valprime_star = None
             break
-    return a_star, val_star, valprime_star
+    return a_star, val_star, valprime_star   
+     
