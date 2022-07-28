@@ -24,11 +24,11 @@ which calculate the object-function $J(\boldsymbol{X})$, its Euclidean gradient 
 
 returns the optimal vector `X_opt` (as a list of numpy vectors) the residual errors `RESIDUAL` (as a list of floats) and the objective function evaluations `FUNCT` (as a list of floats) during the iterative optimisation procedure. The arguments `args_f = (), args_IP=()` are tuples which can be used to supply the necessary arguments to `f,Grad_f` and `Inner_Product` respectively. 
 
-In addition to the above the remaining *optional* arguments, whose default values are
+In addition to the above the remaining *optional arguments*, whose default values are
 
 `err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=None`
 
-specifiy the termination conditions `err_tol,max_iters`, the maximum initial step-size `alpha_k`, the line-search routine ('Armijo' or 'LS_wolfe'), the gradient descent rotuine (CG or SD) and provide the utility of a callback (function/callable) which takes the current iteration $k$ its sole argument and allows the user to save or perform calculations on the current iterate's information.
+specifiy the termination conditions `err_tol,max_iters`, the maximum/initial step-size `alpha_k`, the line-search routine ('Armijo' or 'LS_wolfe'), the gradient descent rotuine 'CG=True' (use a conjuagte-gradient update) or 'CG=False' (use a steepest-descent update) and provide the utility of a callback (function/callable) which takes the current iteration $k$ as its sole argument and allows the user to save or perform calculations on the current iterate's information.
 
 **Example 1**
 
