@@ -1,10 +1,20 @@
 # Gradient descent on a spherical manifold(s)
 
+Optimisation code to solve the minimisation problem:
 
-Optimisation code ....
+
+$ \underset{ \boldsymbol{X}_0}{\text{minimise}} \quad J(\boldsymbol{X},\boldsymbol{X}_0), \text{subject to} || \boldsymbol{X}_0 ||^2 - E_0 = 0,$
+
+on the spherical manifold 
+
+$\mathcal{S} = \{ \hat{\VF{X}} \; | \; \langle \hat{\VF{X}}, \hat{\VF{X}} \rangle = E_0 \}$.
 
 
 **Example 1**
+
+Optimisation code to search the largest principle component of a symmetric matrix M, and compare it with the result obtained using numpy's built-in eigen-vector solver. The parameter `DIM` controls the dimension of the random symmetric matrix generated.
+
+`RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[M_0],f,Grad_f,Inner_Product,args_f,args_IP,LS = 'LS_armijo', CG = False)`
 
 ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------ 
 
