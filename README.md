@@ -2,7 +2,7 @@
 
 Optimisation code to solve the minimisation problem:
 
-$\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \quad$  where  $\quad \mathcal{S} = \[ \boldsymbol{X} \quad | \quad \langle \boldsymbol{X}, \boldsymbol{X} \rangle = E \]$.
+$\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \quad$  where  $\quad \mathcal{S} = \[ \boldsymbol{X} \quad | \quad \langle \boldsymbol{X}, \boldsymbol{X} \rangle = E \]$,
 
 is the spherical manifold of radius $E$. 
 
@@ -10,7 +10,7 @@ Given a (python) list of (numpy) vectors $X_i$
 
 $X = \[X_0,X_1, ..., X_n\]$
 
-a corresponding list of constraint amplitudes (floats) $E_i$
+a corresponding list of constraint amplitudes (float) $E_i$
 
 $E = \[E_0, E_1, ...., E_n\]$
 
@@ -18,7 +18,7 @@ the accompanying routines
 
 `f,Grad_f & Inner_Product` 
 
-which implement the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \boldsymbol{f}, \boldsymbol{g} \rangle$ calling the routine
+which calculate the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \boldsymbol{f}, \boldsymbol{g} \rangle$, calling the routine
 
 `RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP)`
 
