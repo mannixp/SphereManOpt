@@ -4,10 +4,11 @@ Optimisation code to solve the minimisation problem:
 
 $\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X})$
 
-on the spherical manifold 
+where
 
-$\mathcal{S} = \big{ \hat{\boldsymbol{X}}  | \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \right)$.
+$\mathcal{S} = \left( \hat{\boldsymbol{X}} \quad | \quad \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \right)$.
 
+is the spherical manifold of radius $E_0$.
 
 **Example 1**
 
