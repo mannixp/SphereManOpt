@@ -2,19 +2,22 @@
 
 Optimisation code to solve the minimisation problem:
 
-$\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X})$
+$\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X})$  where $\mathcal{S} = \left( \hat{\boldsymbol{X}} \quad | \quad \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \right)$.
 
-where
+is the spherical manifold of radius $E_0$. 
 
-$\mathcal{S} = \left( \hat{\boldsymbol{X}} \quad | \quad \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \right)$.
+Given a python list $X = \[X_0,X_1, ..., X_n\]$ of numpy vectors $X_i$ and a corresponding list of constraint amplitudes (floats) E = \[E_0_, E_1, ...., E_n]$
+as well as the accompanying routines `f,Grad_f & Inner_Product` which implement the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\Nabla J(\boldsymbol{X})$ and the inner-product $\langle \hat{\boldsymbol{f}}, \hat{\boldsymbol{g}} \rangle$ the routine
 
-is the spherical manifold of radius $E_0$.
+`RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP,LS = 'LS_armijo', CG = False)`
+
+returns the list of optimal vectors `X_opt` as well as lists of the residual errors and objective function evaluations during the iterative optimisation procedure.
 
 **Example 1**
 
 Optimisation code to search the largest principle component of a symmetric matrix M, and compare it with the result obtained using numpy's built-in eigen-vector solver. The parameter `DIM` controls the dimension of the random symmetric matrix generated.
 
-`RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[M_0],f,Grad_f,Inner_Product,args_f,args_IP,LS = 'LS_armijo', CG = False)`
+`RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP,LS = 'LS_armijo', CG = False)`
 
 ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------ 
 
