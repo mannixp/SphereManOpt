@@ -2,21 +2,27 @@
 
 Optimisation code to solve the minimisation problem:
 
-$\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \quad$  where  $\quad \mathcal{S} = \left( \hat{\boldsymbol{X}} \quad | \quad \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \right)$.
+$\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \quad$  where  $\quad \mathcal{S} = \left( \boldsymbol{X} \quad | \quad \langle \boldsymbol{X}, \boldsymbol{X} \rangle = E \right)$.
 
-is the spherical manifold of radius $E_0$. 
+is the spherical manifold of radius $E$. 
 
-Given a (python) list $X = \[X_0,X_1, ..., X_n\]$ of (numpy) vectors $X_i$ and a corresponding list $E = \[E_0, E_1, ...., E_n\]$ of of constraint amplitudes (floats) $E_i$ as well as the accompanying routines `f,Grad_f & Inner_Product` which implement the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \hat{\boldsymbol{f}}, \hat{\boldsymbol{g}} \rangle$ the routine
+Given a (python) list $X = \[X_0,X_1, ..., X_n\]$ of (numpy) vectors $X_i$, a corresponding list $E = \[E_0, E_1, ...., E_n\]$ of constraint amplitudes (floats) $E_i$, the accompanying routines `f,Grad_f & Inner_Product` which implement the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \hat{\boldsymbol{f}}, \hat{\boldsymbol{g}} \rangle$ calling the routine
 
-`RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP,LS = 'LS_armijo', CG = False)`
+`RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP)`
 
-returns the list of optimal vectors `X_opt` as well as lists of the residual errors and objective function evaluations during the iterative optimisation procedure.
+returns the optimal vector `X_opt` (list of numpy vectors) as well as lists of the residual errors `RESIDUAL` (list of floats) and objective function evaluations `FUNCT` (list of floats)during the iterative optimisation procedure. The arguments `args_f = (), args_IP=()` are tuples which can be used to supply the necessary arguments to `f,Grad_f` and `Inner_Product` respectively. 
+
+In addition to the above the remaining optional arguments
+
+`err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=None`
+
+specifiy the termination conditions, the maximum initial step-sze, the line-search routine ('Armijo' or 'LS_wolfe'), the gradient descent rotuine (CG or SD) and provide the utility of a callback which takes the current iteration as an argument thus allowing the user to save or perform calculations on the current iterations information.
 
 **Example 1**
 
 Optimisation code to search the largest principle component of a symmetric matrix M, and compare it with the result obtained using numpy's built-in eigen-vector solver. The parameter `DIM` controls the dimension of the random symmetric matrix generated.
 
-`RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP,LS = 'LS_armijo', CG = False)`
+`RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP)`
 
 ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------ 
 
