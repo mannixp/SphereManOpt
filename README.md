@@ -16,9 +16,9 @@ $E = \[E_0, E_1, ...., E_n\]$
 
 the accompanying routines 
 
-`f,Grad_f & Inner_Product` 
+`f,Grad_f,Inner_Product` 
 
-which calculate the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \boldsymbol{f}, \boldsymbol{g} \rangle$, calling the routine
+which calculate the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \boldsymbol{f}, \boldsymbol{g} \rangle$ respectively. Calling the routine
 
 `RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP)`
 
