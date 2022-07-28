@@ -6,7 +6,7 @@ $\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \
 
 is the spherical manifold of radius $E_0$. 
 
-Given a (python) list $X = \[X_0,X_1, ..., X_n\]$ of (numpy) vectors $X_i$ and a corresponding list $E = \[E_0_, E_1, ...., E_n\]$ of of constraint amplitudes (floats) $E_i$ as well as the accompanying routines `f,Grad_f & Inner_Product` which implement the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \hat{\boldsymbol{f}}, \hat{\boldsymbol{g}} \rangle$ the routine
+Given a (python) list $X = \[X_0,X_1, ..., X_n\]$ of (numpy) vectors $X_i$ and a corresponding list $E = \[E_0, E_1, ...., E_n\]$ of of constraint amplitudes (floats) $E_i$ as well as the accompanying routines `f,Grad_f & Inner_Product` which implement the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \hat{\boldsymbol{f}}, \hat{\boldsymbol{g}} \rangle$ the routine
 
 `RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP,LS = 'LS_armijo', CG = False)`
 
