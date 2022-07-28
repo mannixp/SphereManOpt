@@ -2,12 +2,11 @@
 
 Optimisation code to solve the minimisation problem:
 
-
-$ \underset{ \boldsymbol{X}_0}{\text{minimise}} \quad J(\boldsymbol{X},\boldsymbol{X}_0), \text{subject to} || \boldsymbol{X}_0 ||^2 - E_0 = 0,$
+$\text{min} J(\boldsymbol{X})$
 
 on the spherical manifold 
 
-$\mathcal{S} = \{ \hat{\VF{X}} \; | \; \langle \hat{\VF{X}}, \hat{\VF{X}} \rangle = E_0 \}$.
+$\mathcal{S} = \{ \hat{\boldsymbol{X}} \; | \; \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \}$.
 
 
 **Example 1**
