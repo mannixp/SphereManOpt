@@ -2,11 +2,11 @@
 
 Optimisation code to solve the minimisation problem:
 
-$\underset{\boldsymbol{X}}{\text{min}} \quad J(\boldsymbol{X})$
+$\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X})$
 
 on the spherical manifold 
 
-$\mathcal{S} = \{ \hat{\boldsymbol{X}}  | \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \}$.
+$\mathcal{S} = \left{ \hat{\boldsymbol{X}}  | \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \right}$.
 
 
 **Example 1**
