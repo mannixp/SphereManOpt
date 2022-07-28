@@ -76,4 +76,4 @@ allow one to select the gradient approximation used. Executing this script with
 
 `mpiexec -np 4 python3 FWD_Solve_PBox_IND_MHD.py && python3 plot_figure_PBox_FULL.py`
 
-optimises both the velocity and magnetic fields using 4 cores and plots the resulting solution. *add comment about the gradient*
+optimises both the velocity and magnetic fields using 4 cores and plots the resulting solution.
