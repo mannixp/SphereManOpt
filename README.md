@@ -36,7 +36,7 @@ Optimisation code to search the largest principle component of a symmetric matri
 
 `python3 PCA_example.py`
 
-finds the principle component, using steepest-descent (SD) and conjugate-gradient (CG) methos, plots the residual error of each and compares with the optimal solution as found using numpy's built-in eigen-vector solver.
+finds the principle component, using steepest-descent (SD) and conjugate-gradient (CG) methods, plots the residual error of each and compares `X_opt` with the solution found using numpy's built-in eigen-vector solver.
 
 ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------ 
 
