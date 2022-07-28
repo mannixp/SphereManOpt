@@ -20,8 +20,7 @@ allows on to test the quality of the gradient approximation used.
 
 **Example 2**
 
-Optimisation code to search the *minimal perturbation* triggering transition to a localised state of the Swift-Hohenberg equation on a 1D periodic domain following [(D. Lecoanet, Phys. Rev. E., 2018)]([https://link.
-aps.org/doi/10.1103/PhysRevE.97.012212]). The default arguments contained in FWD_Solve_SH23.py are
+Optimisation code to search the *minimal perturbation* triggering transition to a localised state of the Swift-Hohenberg equation on a 1D periodic domain following [(D. Lecoanet, Phys. Rev. E., 2018)](https://link.aps.org/doi/10.1103/PhysRevE.97.012212). The default arguments contained in FWD_Solve_SH23.py are
 
 `T=50, Npts = 256, dt = 0.1, M_0 = 0.0725`
 
