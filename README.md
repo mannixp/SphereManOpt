@@ -1,4 +1,4 @@
-# Gradient descent on a spherical manifold(s)
+# SphereManOpt: Gradient descent on a spherical manifold(s)
 
 Optimisation code to solve the minimisation problem:
 
@@ -6,23 +6,37 @@ $\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \
 
 is the spherical manifold of radius $E$. 
 
-Given a (python) list $X = \[X_0,X_1, ..., X_n\]$ of (numpy) vectors $X_i$, a corresponding list $E = \[E_0, E_1, ...., E_n\]$ of constraint amplitudes (floats) $E_i$, the accompanying routines `f,Grad_f & Inner_Product` which implement the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \hat{\boldsymbol{f}}, \hat{\boldsymbol{g}} \rangle$ calling the routine
+Given a (python) list of (numpy) vectors $X_i$
+
+$X = \[X_0,X_1, ..., X_n\]$
+
+a corresponding list of constraint amplitudes (floats) $E_i$
+
+$E = \[E_0, E_1, ...., E_n\]$
+
+the accompanying routines 
+
+`f,Grad_f & Inner_Product` 
+
+which implement the object-function $J(\boldsymbol{X})$, its Euclidean gradient $\nabla J(\boldsymbol{X})$ and the inner-product $\langle \boldsymbol{f}, \boldsymbol{g} \rangle$ calling the routine
 
 `RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP)`
 
-returns the optimal vector `X_opt` (list of numpy vectors) as well as lists of the residual errors `RESIDUAL` (list of floats) and objective function evaluations `FUNCT` (list of floats)during the iterative optimisation procedure. The arguments `args_f = (), args_IP=()` are tuples which can be used to supply the necessary arguments to `f,Grad_f` and `Inner_Product` respectively. 
+returns the optimal vector `X_opt` (as a list of numpy vectors) the residual errors `RESIDUAL` (as a list of floats) and the objective function evaluations `FUNCT` (as a list of floats) during the iterative optimisation procedure. The arguments `args_f = (), args_IP=()` are tuples which can be used to supply the necessary arguments to `f,Grad_f` and `Inner_Product` respectively. 
 
-In addition to the above the remaining optional arguments
+In addition to the above the remaining *optional* arguments, whose default values are
 
 `err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=None`
 
-specifiy the termination conditions, the maximum initial step-sze, the line-search routine ('Armijo' or 'LS_wolfe'), the gradient descent rotuine (CG or SD) and provide the utility of a callback which takes the current iteration as an argument thus allowing the user to save or perform calculations on the current iterations information.
+specifiy the termination conditions `err_tol,max_iters`, the maximum initial step-size `alpha_k`, the line-search routine ('Armijo' or 'LS_wolfe'), the gradient descent rotuine (CG or SD) and provide the utility of a callback (function/callable) which takes the current iteration $k$ its sole argument and allows the user to save or perform calculations on the current iterate's information.
 
 **Example 1**
 
-Optimisation code to search the largest principle component of a symmetric matrix M, and compare it with the result obtained using numpy's built-in eigen-vector solver. The parameter `DIM` controls the dimension of the random symmetric matrix generated.
+Optimisation code to search the largest principle component of a symmetric matrix M. The parameter `DIM` controls the dimension of the random symmetric matrix generated. Executing this script with 
 
-`RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X,E,f,Grad_f,Inner_Product,args_f,args_IP)`
+`python3 PCA_example.py`
+
+finds the principle component, using steepest-descent (SD) and conjugate-gradient (CG) methos, plots the residual error of each and compares with the optimal solution as found using numpy's built-in eigen-vector solver.
 
 ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------  <>  ------------------ 
 
