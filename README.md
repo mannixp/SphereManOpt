@@ -6,7 +6,7 @@ $\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X})$
 
 on the spherical manifold 
 
-$\mathcal{S} = \left{ \hat{\boldsymbol{X}}  | \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \right}$.
+$\mathcal{S} = \left( \hat{\boldsymbol{X}}  | \langle \hat{\boldsymbol{X}}, \hat{\boldsymbol{X}} \rangle = E_0 \right)$.
 
 
 **Example 1**
