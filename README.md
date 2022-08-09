@@ -28,7 +28,7 @@ In addition to the above the remaining *optional arguments*, whose default value
 
 `err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=None`
 
-specifiy the termination conditions `err_tol,max_iters`, the maximum/initial step-size `alpha_k`, the line-search routine ('Armijo' or 'LS_wolfe'), the gradient descent rotuine 'CG=True' (use a conjuagte-gradient update) or 'CG=False' (use a steepest-descent update) and provide the utility of a callback (function/callable) which takes the current iteration $k$ as its sole argument and allows the user to save or perform calculations on the current iterate's information.
+specifiy the termination conditions `err_tol,max_iters`, the maximum/initial step-size `alpha_k`, the [line-search routine](https://github.com/scipy/scipy/blob/v1.9.0/scipy/optimize/_linesearch.py#L181-L313) ('Armijo' or 'LS_wolfe'), the gradient descent rotuine 'CG=True' (use a conjuagte-gradient update) or 'CG=False' (use a steepest-descent update) and provide the utility of a callback (function/callable) which takes the current iteration $k$ as its sole argument and allows the user to save or perform calculations on the current iterate's information.
 
 **Example 1**
 
