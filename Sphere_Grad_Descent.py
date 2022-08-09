@@ -9,8 +9,15 @@ from warnings import warn
 class LineSearchWarning(RuntimeWarning):
     pass;
 
+# We acknowledge the scipy.optimize.line_search library for the
+# unmodified
+# LS_armijo_multiple, LS_wolfe_multiple
+# & modified 
+# scalar_search_armijo, scalar_search_wolfe2, _cubicmin, _quadmin, _zoom
+# functions present in this file.
+
 #------------------------------------------------------------------------------
-# Armijo line and scalar searches 
+# Armijo line and scalar searches
 #------------------------------------------------------------------------------
 
 def LS_armijo_multiple(f, inner_prod, M_0, X_k, g_k, d_k,  old_fval, args_f=(), args_IP = (), alpha0=1.0, c1=1e-4):
