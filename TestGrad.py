@@ -42,9 +42,9 @@ def Adjoint_Gradient_Test(X0,dX0, *Other_args):
 	"""
 	
 	# Codes Written
-	from FWD_Solve_PBox_IND_MHD import FWD_Solve_IVP_Lin
-	from FWD_Solve_PBox_IND_MHD import ADJ_Solve_IVP_Lin
-	from FWD_Solve_PBox_IND_MHD import Inner_Prod
+	from FWD_Solve_SHB23 import FWD_Solve_IVP_Lin
+	from FWD_Solve_SHB23 import ADJ_Solve_IVP_Lin
+	from FWD_Solve_SHB23 import Inner_Prod
 
 	# Set to info level rather than the debug default
 	root = logging.root
@@ -59,26 +59,26 @@ def Adjoint_Gradient_Test(X0,dX0, *Other_args):
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	logger.info("JB0 FWD_Solve running .... \n")
 	start_time = time.time()
-	J_ref 	   = FWD_Solve_IVP_Lin(X0,	*Other_args);
+	J_ref 	   = FWD_Solve_IVP_Lin([X0],	*Other_args);
 	end_time   = time.time()
 	print('Total time fwd: %f' %(end_time-start_time))
 	
 
 	logger.info("dJ Adjoint_Solve running .... \n")
 	start_time = time.time()
-	dJdX 	   = ADJ_Solve_IVP_Lin(X0,	*Other_args);
+	dJdX 	   = ADJ_Solve_IVP_Lin([X0],	*Other_args)[0];
 	end_time   = time.time()
 	print('Total time adjoint: %f' %(end_time-start_time))
 
 	logger.info("Computing Inner product <dL/dB,dB >_adj  .... \n")
 	domain = Other_args[0];
-	W_ADJ  = Inner_Prod(domain,dX0,dJdX);
+	W_ADJ  = Inner_Prod(dX0,dJdX,domain);
 
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	# (2) Loop for (A) W_fd = <dL/dB,dB >_fd, (B) W_adj = <dL/dB,dB >_adj  
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	epsilon = 1e-04; #0.75;
+	epsilon = 1e-01;
 	logger.info('epsilon = %e'%epsilon)
 
 	N_test = 5;
@@ -93,7 +93,7 @@ def Adjoint_Gradient_Test(X0,dX0, *Other_args):
 		TAY_R  = 0.0; # Compute the Taylor remainder -- checks if we've a gradient
 		TAY_R2 = 0.0; # Compute the 2^nd Taylor remainder -- checks convergence of adjoint
 
-		J_fd = FWD_Solve_IVP_Lin( X0 + epsilon*dX0, *Other_args);
+		J_fd = FWD_Solve_IVP_Lin( [X0 + epsilon*dX0], *Other_args);
 		
 		TAY_R  = abs(J_fd - J_ref); # Should go like O(h);
 		TAY_R2 = abs(J_fd - J_ref - epsilon*W_ADJ); # Should go like O(h^2);
