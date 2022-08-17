@@ -9,33 +9,6 @@ import h5py,logging
 # ~~~~~ General Routines ~~~~~~~~~~~~~
 ##########################################################################
 
-def filter_field(field,frac=0.5):
-    
-	"""
-	Given a dedalus field object, set "frac" of the highest wave_number coefficients to zero
-
-	Useful when initialising simulations with differentiated noise.
-
-	Input: 
-	dedlaus field object
-	frac = float in (0,1)
-
-	Returns:
-	None - field passed by reference in effect
-	"""
-
-	field.require_coeff_space()
-	dom = field.domain                                                                                                                                                      
-	local_slice = dom.dist.coeff_layout.slices(scales=dom.dealias)                                                                                                          
-	coeff = []                                                                                                                                                              
-	for n in dom.global_coeff_shape:
-		coeff.append(np.linspace(0,1,n,endpoint=False))                                                                                             
-	cc = np.meshgrid(*coeff,indexing='ij')
-	field_filter = np.zeros(dom.local_coeff_shape,dtype='bool')                                                                                                             
-	for i in range(dom.dim):                                                                                                                                                
-		field_filter = field_filter | (cc[i][local_slice] > frac)                                                                                                           
-	field['c'][field_filter] = 0. # as coefficients are real not 1j
-
 def Field_to_Vec(domain,Fx    ):
 	
 	"""
@@ -165,22 +138,40 @@ def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0,Type_IP = 'Field'):
 	
 	import dedalus.public as de
 
-	# Set to info level rather than the debug default
-	root = logging.root
-	for h in root.handlers:
-		h.setLevel("INFO"); #h.setLevel("DEBUG") h.setLevel("WARNING");
-	logger = logging.getLogger(__name__)
-
-
-	logger.info('\n\n Generating initial conditions ..... \n\n');
-
 	# Part 1) Generate domain
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	z_basis = de.Chebyshev('z',  Npts, interval=Z, dealias=2)
 	domain = de.Domain([z_basis], np.float64)
 
 	# Part 2) Generate initial condition U = phi
-	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~	
+	def filter_field(field,frac=0.5):
+    
+		"""
+		Given a dedalus field object, set "frac" of the highest wave_number coefficients to zero
+
+		Useful when initialising simulations with differentiated noise.
+
+		Input: 
+		dedlaus field object
+		frac = float in (0,1)
+
+		Returns:
+		None - field passed by reference in effect
+		"""
+
+		field.require_coeff_space()
+		dom = field.domain                                                                                                                                                      
+		local_slice = dom.dist.coeff_layout.slices(scales=dom.dealias)                                                                                                          
+		coeff = []                                                                                                                                                              
+		for n in dom.global_coeff_shape:
+			coeff.append(np.linspace(0,1,n,endpoint=False))                                                                                             
+		cc = np.meshgrid(*coeff,indexing='ij')
+		field_filter = np.zeros(dom.local_coeff_shape,dtype='bool')                                                                                                             
+		for i in range(dom.dim):                                                                                                                                                
+			field_filter = field_filter | (cc[i][local_slice] > frac)                                                                                                           
+		field['c'][field_filter] = 0. # as coefficients are real not 1j
+	
 	phi = domain.new_field();
 	phi.set_scales(domain.dealias, keep_data=False)
 	gshape = domain.dist.grid_layout.global_shape(scales=domain.dealias)
@@ -190,21 +181,14 @@ def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0,Type_IP = 'Field'):
 	phi['g'] = noise;
 	filter_field(phi)
 
-	# 3) Normalise it
-	SUM = Inner_Prod(phi,phi,domain,Type_IP );
-	logger.info('Pre-scale (1/V)<U,U> = %e'%SUM);
+	# 3) Normalise it, integrate it, Re-normalise
+	SUM      = Inner_Prod(phi,phi,domain,Type_IP );
 	phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
-	SUM = Inner_Prod(phi,phi,domain,Type_IP );
-	logger.info('Scaled (1/V)<U*,U*> = %e'%SUM);
 
-	# INTEGRATE IT a few steps to satisfy the bcs
 	phi['g'] = FWD_Solve_IVP_PREP([phi], domain)['g']
 
-	SUM = Inner_Prod(phi,phi,domain,Type_IP );
-	logger.info('Re-scale (1/V)<U,U> = %e'%SUM);
+	SUM      = Inner_Prod(phi,phi,domain,Type_IP );
 	phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
-	SUM = Inner_Prod(phi,phi,domain,Type_IP );
-	logger.info('Re-Scaled (1/V)<U*,U*> = %e'%SUM);
 	
 	return domain, Field_to_Vec(domain,phi);
 
@@ -588,7 +572,6 @@ def File_Manips(k):
 	#shutil.rmtree('Checkpoints');
 
 	return None;		
-
 
 Adjoint_type = "Continuous";
 
