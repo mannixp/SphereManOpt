@@ -1,13 +1,8 @@
-import time,sys,os;
-os.environ["OMP_NUM_THREADS"] = "1" # Improves performance apparently ????
-
-##from mpi4py import MPI # Import this before numpy
+import time
 import numpy as np
-from numpy import pi
 import logging
 
-
-def Adjoint_Gradient_Test(X0,dX0, *Other_args):
+def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP):
 
 
 	"""
@@ -19,32 +14,21 @@ def Adjoint_Gradient_Test(X0,dX0, *Other_args):
 
 	by repeating evaluations for h,h/2,h/4,... to determine convergence order.
 
-	Do so on the functions:
-
-	FWD_Solve_PBox_IND_MHD.FWD_Solve
-	FWD_Solve_PBox_IND_MHD.ADJ_Solve
-
-	Using the inner product as defined by:
-
-	FWD_Solve_PBox_IND_MHD.Integrate_Field
-
-	~~~~~~~~~~~~~~~~~~~~~~
-
 	Inputs:
-	Bx0   - 1D np.array initial vector satisfying bcs + divergence condition
-	dBx0  - 1D np.array perturb vector satisfying bcs + divergence condition
+	X0  - initial condition
+	dX0 - perturbation
 
-	*Other_args - see DAL_PCF_MAIN.py for definition
+	FWD_Solve - forward code callable
+	ADJ_Solve - adjoint code callable
+	Inner_Prod- inner product code callable
+
+	args_f - positional arguments to pass to FWD_Solve & ADJ_Solve
+	args_IP- positional arguments to pass to Inner_Prod
 
 	Returns:
 	None
 
 	"""
-	
-	# Codes Written
-	from FWD_Solve_SHB23 import FWD_Solve_IVP_Lin
-	from FWD_Solve_SHB23 import ADJ_Solve_IVP_Lin
-	from FWD_Solve_SHB23 import Inner_Prod
 
 	# Set to info level rather than the debug default
 	root = logging.root
@@ -59,20 +43,19 @@ def Adjoint_Gradient_Test(X0,dX0, *Other_args):
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	logger.info("JB0 FWD_Solve running .... \n")
 	start_time = time.time()
-	J_ref 	   = FWD_Solve_IVP_Lin([X0],	*Other_args);
+	J_ref 	   = FWD_Solve([X0],	*args_f);
 	end_time   = time.time()
 	print('Total time fwd: %f' %(end_time-start_time))
 	
 
 	logger.info("dJ Adjoint_Solve running .... \n")
 	start_time = time.time()
-	dJdX 	   = ADJ_Solve_IVP_Lin([X0],	*Other_args)[0];
+	dJdX 	   = ADJ_Solve([X0],	*args_f)[0];
 	end_time   = time.time()
 	print('Total time adjoint: %f' %(end_time-start_time))
 
 	logger.info("Computing Inner product <dL/dB,dB >_adj  .... \n")
-	domain = Other_args[0];
-	W_ADJ  = Inner_Prod(dX0,dJdX,domain);
+	W_ADJ  = Inner_Prod(dX0,dJdX,*args_IP);
 
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	# (2) Loop for (A) W_fd = <dL/dB,dB >_fd, (B) W_adj = <dL/dB,dB >_adj  
@@ -93,16 +76,10 @@ def Adjoint_Gradient_Test(X0,dX0, *Other_args):
 		TAY_R  = 0.0; # Compute the Taylor remainder -- checks if we've a gradient
 		TAY_R2 = 0.0; # Compute the 2^nd Taylor remainder -- checks convergence of adjoint
 
-		J_fd = FWD_Solve_IVP_Lin( [X0 + epsilon*dX0], *Other_args);
-		
+		J_fd = FWD_Solve([X0 + epsilon*dX0],	*args_f)
+
 		TAY_R  = abs(J_fd - J_ref); # Should go like O(h);
 		TAY_R2 = abs(J_fd - J_ref - epsilon*W_ADJ); # Should go like O(h^2);
-
-		# ~~~~~~~~~# (B.2) 2nd order Central differencing ~~~~~~~~~~	
-		#J_fd = FWD_Solve(Bx0 + epsilon*dBx0,*Other_args);
-		#J_bck = FWD_Solve(Bx0 - epsilon*dBx0,*Other_args);
-		#TAY_R = abs(J_fd - J_bck); # Should go like O(h);
-		#TAY_R2 = abs(J_fd - J_bck - 2.*epsilon*W_ADJ); # Should go like O(h^3), but it doesn't ?????
 
 		logger.info('#~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~')
 
@@ -117,8 +94,8 @@ def Adjoint_Gradient_Test(X0,dX0, *Other_args):
 		logger.info('#~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~')
 
 		# ~~~~~~~~~~~ Log errors and decrement epsilon ~~~~~~~~~
-		EPSILON[test] = epsilon;
-		TEST_SUM_R[test] = TAY_R;
+		EPSILON[test]     = epsilon;
+		TEST_SUM_R[test]  = TAY_R;
 		TEST_SUM_R2[test] = TAY_R2;
 
 		epsilon = 0.5*epsilon;
@@ -160,7 +137,6 @@ def Adjoint_Gradient_Test(X0,dX0, *Other_args):
 	logger.info('Gamma TAYLOR_2 = %e'%GT2);
 
 	logger.info('#~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~')
-
 
 	np.save("eps_TestR_TestR2_h_h2.npy",AA);
 

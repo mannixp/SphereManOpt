@@ -36,39 +36,6 @@ def filter_field(field,frac=0.5):
 		field_filter = field_filter | (cc[i][local_slice] > frac)                                                                                                           
 	field['c'][field_filter] = 0. # as coefficients are real not 1j
 
-def new_ncc(domain, scales=True, keep_data=False, const=[]):
-	"""
-	Generate a new non-constant-coefficient field (ncc) on the prescribed domain.
-	"""
-	field = domain.new_field()
-	for direction in const:
-		field.meta[direction]['constant'] = True
-	if (scales):
-		field.set_scales(domain.dealias, keep_data=keep_data)
-	return field
-
-def Integrate_Field(domain,F):
-
-	"""
-	Performs the Volume integral of a given field F as 
-
-	KE(t) = 1/L_z int_z F(z) dz, where F = u^2
-
-	where KE is Kinetic Enegry
-	"""
-	# Dedalus Libraries
-	from dedalus.extras import flow_tools 
-	import dedalus.public as de
-
-	flow_red = flow_tools.GlobalArrayReducer(MPI.COMM_WORLD);
-	INT_ENERGY = de.operators.integrate( F ,'z');
-	SUM = INT_ENERGY.evaluate();
-	
-	# Divide by volume size
-	VOL = 1./domain.hypervolume;
-
-	return VOL*flow_red.global_max(SUM['g']); # Using this as it's what flow-tools does for volume average
-
 def Field_to_Vec(domain,Fx    ):
 	
 	"""
@@ -144,27 +111,45 @@ def Vec_to_Field(domain,A, Bx0):
 
 	return None;
 
-def Inner_Prod(x,y,domain,rand_arg=None):
+def Inner_Prod_Cnts(x,y,domain,Type_xy='np_vector'):
 
-	# The line-search requires the IP
-	# m = <\Nabla J^T, P_k >, where P_k = - \Nabla J(B_0)^T
-	# Must be evaluated using an integral consistent with our objective function
-	# i.e. <,> = (1/V)int_v x*y r dr ds dz
-	# To do this we transform back to fields and integrate using a consistent routine
+	"""
+	Performs the Volume integral of a given product of fields fg as 
 
-	#Split the 6 vector into three vectors 
-	#X = np.split(x,2);
-	#Y = np.split(y,2);
+	<f,g> = 1/L_z int_z F(z)G(z) dz,
 
-	dA = new_ncc(domain);
-	Vec_to_Field(domain,dA,x);
+	
+	"""
 
-	dB = new_ncc(domain);
-	Vec_to_Field(domain,dB,y);
+	# Dedalus Libraries
+	from dedalus.extras import flow_tools 
+	import dedalus.public as de
 
-	return Integrate_Field(domain, dA*dB );
+	if Type_xy == 'np_vector':
+		dA = domain.new_field()
+		Vec_to_Field(domain,dA,x);
 
-def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0):
+		dB = domain.new_field()
+		Vec_to_Field(domain,dB,y);
+	else:
+		dA = x; dB = y;	
+
+
+	flow_red   = flow_tools.GlobalArrayReducer(MPI.COMM_WORLD);
+	INT_ENERGY = de.operators.integrate( dA*dB ,'z');
+	SUM        = INT_ENERGY.evaluate();
+	
+	# Divide by volume size
+	VOL = 1./domain.hypervolume;
+
+	return VOL*flow_red.global_max(SUM['g']); # Using this as it's what flow-tools does for volume average
+
+# @ Calum add the discrete forward here - if neccessary ?
+def Inner_Prod_Discrete(x,y,some_args):
+
+	return None;
+
+def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0,Type_IP = 'Field'):
 	"""
 	Generate a domain object and initial conditions from which the optimisation can proceed
 
@@ -206,23 +191,21 @@ def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0):
 	filter_field(phi)
 
 	# 3) Normalise it
-	SUM = Integrate_Field(domain, phi**2 );
+	SUM = Inner_Prod(phi,phi,domain,Type_IP );
 	logger.info('Pre-scale (1/V)<U,U> = %e'%SUM);
 	phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
-	SUM = Integrate_Field(domain, phi**2 );
+	SUM = Inner_Prod(phi,phi,domain,Type_IP );
 	logger.info('Scaled (1/V)<U*,U*> = %e'%SUM);
 
-	#'''
-	# INTEGRATE IT a few steps
+	# INTEGRATE IT a few steps to satisfy the bcs
 	phi['g'] = FWD_Solve_IVP_PREP([phi], domain)['g']
 
-	SUM = Integrate_Field(domain, phi**2 );
+	SUM = Inner_Prod(phi,phi,domain,Type_IP );
 	logger.info('Re-scale (1/V)<U,U> = %e'%SUM);
 	phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
-	SUM = Integrate_Field(domain, phi**2 );
+	SUM = Inner_Prod(phi,phi,domain,Type_IP );
 	logger.info('Re-Scaled (1/V)<U*,U*> = %e'%SUM);
-	#'''
-
+	
 	return domain, Field_to_Vec(domain,phi);
 
 def GEN_BUFFER(Npts, domain, N_SUB_ITERS):
@@ -261,6 +244,7 @@ def GEN_BUFFER(Npts, domain, N_SUB_ITERS):
 	A_SNAPS = np.zeros(SNAPS_SHAPE,dtype=np.float64);
 
 	return {'A_fwd':A_SNAPS};
+# ~~~~~~~~~~~~
 
 ##########################################################################
 # ~~~~~ FWD Solvers ~~~~~~~~~~~~~
@@ -302,21 +286,16 @@ def FWD_Solve_Build_Lin(domain):
 	# Build solver
 	return problem.build_solver(de.timesteppers.SBDF1);
 
-def FWD_Solve_IVP_PREP(X_k, domain, dt=1e-02,  N_ITERS=100, N_SUB_ITERS=100):
+def FWD_Solve_IVP_PREP(X_k, domain, dt=1e-02,  N_ITERS=100):
 	
 	"""
 	Integrates the initial condition X(t=0) = Ux0 -> U(x,T);
-	using the induction equation,
+	to clean the data and satisfy the bcs
 
 	Input:
 	
 	Returns:
 	
-	- Writes the following to disk:
-	1) FILE Scalar-data (every 20 iters): Magnetic Enegry, etc. 
-
-	2) FILE Checkpoints (every N_SUB_ITERS): full system state in grid space
-
 	"""
 	from dedalus.extras import flow_tools
 	from dedalus.tools  import post
@@ -327,8 +306,7 @@ def FWD_Solve_IVP_PREP(X_k, domain, dt=1e-02,  N_ITERS=100, N_SUB_ITERS=100):
 	#######################################################
 
 	X0_field = X_k[0];
-
-	IVP_FWD = FWD_Solve_Build_Lin(domain);
+	IVP_FWD  = FWD_Solve_Build_Lin(domain);
 
 	u = IVP_FWD.state['u']; 
 	u.set_scales(domain.dealias, keep_data=False)
@@ -341,15 +319,12 @@ def FWD_Solve_IVP_PREP(X_k, domain, dt=1e-02,  N_ITERS=100, N_SUB_ITERS=100):
 	IVP_FWD.stop_iteration = np.inf
 	IVP_FWD.stop_iteration = N_ITERS+1; # Total Foward Iters + 1, to grab last point
 
-	IVP_FWD.sim_tim   = IVP_FWD.initial_sim_time = 0.
-	IVP_FWD.iteration = IVP_FWD.initial_iteration = 0	
-
 	while IVP_FWD.ok:
 		IVP_FWD.step(dt);
 
 	return u;
 
-def FWD_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT,filename=None, Adjoint_type = "Discrete"):
+def FWD_Solve_IVP_Cnts(X_k, domain, X_FWD_DICT, N_ITERS, dt =1e-02,filename=None):
 	
 	"""
 	Integrates the initial condition X(t=0) = Ux0 -> U(x,T);
@@ -410,7 +385,7 @@ def FWD_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT,filenam
 	#######################################################
 	# analysis tasks
 	#######################################################
-	analysis_CPT = IVP_FWD.evaluator.add_file_handler('CheckPoints', iter=N_SUB_ITERS, mode='overwrite');
+	analysis_CPT = IVP_FWD.evaluator.add_file_handler('CheckPoints', iter=N_ITERS, mode='overwrite');
 	analysis_CPT.add_system(IVP_FWD.state, layout='g', scales=3/2); 
 	analysis_CPT.add_task("u", name="u_hat", layout='c', scales=1);
 
@@ -421,13 +396,14 @@ def FWD_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT,filenam
 	logger.info("\n\n --> Timestepping FWD_Solve ");
 	#######################################################
 
-	N_PRINTS = N_SUB_ITERS//2;
+	N_PRINTS = N_ITERS//2;
 		
 	flow = flow_tools.GlobalFlowProperty(IVP_FWD, cadence=1);
 	flow.add_property("inv_Vol*integ( u**2 )", name='J(u)');
 
 	J_TRAP = 0.;
 	snapshot_index = 0;
+	N_SUB_ITERS = N_ITERS;
 	while IVP_FWD.ok:
 
 		# 1) Fill Dictionary
@@ -468,11 +444,16 @@ def FWD_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT,filenam
 
 	return (-1.)*J_TRAP;
 
+# @ Calum add the discrete forward here - if neccessary ?
+def FWD_Solve_IVP_Discrete(X_k,some_args):
+
+	return None;
+
 ##########################################################################
 # ~~~~~ ADJ Solvers + Comptability Condition ~~~~~~~~~~~~~
 ##########################################################################
 
-def ADJ_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, filename=None, Adjoint_type = "Discrete"):	
+def ADJ_Solve_IVP_Cnts(X_k, domain,  X_FWD_DICT, N_ITERS, dt=1e-02, filename=None):	
 	"""
 	Solve the adjoint of the SH23 equation in a bounded domain:
 
@@ -502,7 +483,7 @@ def ADJ_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, filenam
 	problem.parameters['a'] = -0.1;
 	problem.parameters['inv_Vol'] = 1./domain.hypervolume;
 
-	u_f = new_ncc(domain);
+	u_f = domain.new_field(); #new_ncc(domain);
 	problem.parameters['uf'] = u_f
 
 	problem.add_equation("dt(q) + (1-a)*q + 2*qzz + dz(qzzz) = (4*uf - 3.*(uf**2) )*q - 2.*uf");
@@ -546,7 +527,7 @@ def ADJ_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, filenam
 	logger.info("\n\n --> Timestepping ADJ_Solve ");
 	#######################################################
 
-	N_PRINTS = N_SUB_ITERS//10;
+	N_PRINTS = N_ITERS//10;
 	from dedalus.extras import flow_tools
 	flow = flow_tools.GlobalFlowProperty(IVP_ADJ, cadence=1);
 	flow.add_property("inv_Vol*integ( q**2  )", name='J(q)');
@@ -579,6 +560,11 @@ def ADJ_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, filenam
 
 	return [Ux0];
 
+# @ Calum add the discrete forward here
+def ADJ_Solve_IVP_Discrete(X_k,some_args):
+
+	return None;
+
 def File_Manips(k):
 
 	"""
@@ -589,22 +575,12 @@ def File_Manips(k):
 	"""		
 
 	import shutil
-	# Copy bits into it renaming according to iteration
-
-	# Shouldn't need to be done by all processes!
 
 	# A) Contains all scalar data
-	#Scalar  = "".join([Local_dir,'scalar_data_iter_%i.h5'%k])
 	shutil.copyfile('scalar_data/scalar_data_s1.h5','scalar_data_iter_%i.h5'%k);
 
-	#shutil.copyfile('Adjoint_scalar_data/Adjoint_scalar_data_s1.h5','Adjoint_scalar_data_iter_%i.h5'%k);
-	# B) Contains: Angular Momentum Profile, E(K,m), first and last full system state
-	#
-	#Radial  = "".join([Local_dir,'radial_profiles_iter_%i.h5'%k])
+	# B) Contains all state data
 	shutil.copyfile('CheckPoints/CheckPoints_s1.h5','CheckPoints_iter_%i.h5'%k);
-	##MPI.COMM_WORLD.Barrier();
-
-	#time.sleep(2); # Allow files to be copied
 
 	# 3) Remove Surplus files at the end
 	#shutil.rmtree('snapshots');
@@ -613,38 +589,47 @@ def File_Manips(k):
 
 	return None;		
 
+
+Adjoint_type = "Continuous";
+
+if Adjoint_type == "Discrete":
+
+	Inner_Prod = Inner_Prod_Discrete
+	FWD_Solve  = FWD_Solve_IVP_Discrete
+	ADJ_Solve  = ADJ_Solve_IVP_Discrete
+
+elif Adjoint_type == "Continuous":
+
+	Inner_Prod = Inner_Prod_Cnts
+	FWD_Solve  = FWD_Solve_IVP_Cnts
+	ADJ_Solve  = ADJ_Solve_IVP_Cnts;
+
 if __name__ == "__main__":
 
-	dt = 0.01; Npts =256; L_z = 40.0; Z_domain = (-L_z/2.,L_z/2.);
-	N_ITERS = int(20./dt);
-	N_SUB_ITERS = N_ITERS//1;
-	M_0 = 0.002;
+	dt   = 0.01; 
+	Npts = 256; 
+	L_z  = 40.0; 
+	M_0  = 0.002;
 
-	domain, X0  = Generate_IC(Npts,Z_domain,M_0);
-	X_FWD_DICT   = GEN_BUFFER(Npts, domain, N_SUB_ITERS)
+	Z_Domain = (-L_z/2.,L_z/2.);
+	N_ITERS  = int(20./dt);
 
-	args_f = [domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT]
+	domain, X0  = Generate_IC(Npts,Z_Domain,M_0);
+	X_FWD_DICT  = GEN_BUFFER(Npts, domain, N_ITERS)
+
+	args_f  = (domain, X_FWD_DICT, N_ITERS);
+	args_IP = (domain,'np_vector');
+
 
 	# 1) Test the Gradient 
-
-	# FWD Solve
-	#J_obj = FWD_Solve_IVP_Lin([X0],*args_f);
-
-	# ADJ Solve
-	#dJdB0 = ADJ_Solve_IVP_Lin([X0],*args_f);
-
 	from TestGrad import Adjoint_Gradient_Test
-	dummy_var, dX0  = Generate_IC(Npts,Z_domain,M_0);
-	Adjoint_Gradient_Test(X0,dX0,	*args_f)
+	dummy_var, dX0  = Generate_IC(Npts,Z_Domain,M_0);
+	Adjoint_Gradient_Test(X0,dX0 ,FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
 	
+
 	# 2) Call the optimisation
-
-	args_IP = (domain,None);
-
-	#sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
+	sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
 	
-	# DISC CG
-	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X0],[M_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,err_tol = 1e-05,max_iters=50,LS = 'LS_armijo', CG = False,callback=File_Manips)
-	
+	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X0],[M_0],FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,err_tol = 1e-05,max_iters=50,LS = 'LS_armijo', CG = False,callback=File_Manips)
 	plot_optimisation(RESIDUAL,FUNCT);
