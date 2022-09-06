@@ -855,7 +855,7 @@ if __name__ == "__main__":
 
 
 	Re = 500.;  Ri = .5;
-	dt = 5e-03;
+	dt = 1e-03; #Or smaller if it doesn't converge
 	Nx = 96; Nz = 48;
 	T_opt = 10.; E_0 = 0.02
 	N_ITERS = int(T_opt/dt);
