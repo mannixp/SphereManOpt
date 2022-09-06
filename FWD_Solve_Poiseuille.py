@@ -857,7 +857,7 @@ if __name__ == "__main__":
 	Re = 500.;  Ri = .5;
 	dt = 5e-03;
 	Nx = 96; Nz = 48;
-	T_opt = 5.; E_0 = 0.02
+	T_opt = 10.; E_0 = 0.02
 	N_ITERS = int(T_opt/dt);
 	
 	# (A) time-averaged-kinetic-energy maximisation (α = 0)
@@ -871,24 +871,18 @@ if __name__ == "__main__":
 	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß];
 	args_IP = [domain,None];
 
-	'''
-	# FWD Solve
-	J_obj = FWD_Solve([Ux0], *args_f);
-
-	# ADJ Solve
-	#dJdB0 = ADJ_Solve([Ux0], *args_f);
-	sys.exit()
-	'''
-
 	sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 	
+	# Test the gradient
 	#from TestGrad import Adjoint_Gradient_Test
 	#_, dUx0  = Generate_IC(Nx,Nz);
 	#Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
 	#sys.exit()
 
+	# Run the optimisation
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-04, max_iters = 40, alpha_k = 1., LS = 'LS_armijo', CG = True, callback=File_Manips)
+	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-04, max_iters = 50, alpha_k = 1., LS = 'LS_armijo', CG = True, callback=File_Manips)
 
 	plot_optimisation(RESIDUAL,FUNCT);
+	
 	####
