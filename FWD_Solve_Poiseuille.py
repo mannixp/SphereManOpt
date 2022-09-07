@@ -362,7 +362,7 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 	#problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)")
 
 	# Build solver
-	solver = problem.build_solver(de.timesteppers.SBDF1);
+	solver = problem.build_solver(de.timesteppers.MCNAB2);
 	logger.info('Solver built')
 
 	# Set to info level rather than the debug default
@@ -701,7 +701,7 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 
 
 	# Build solver
-	IVP_ADJ = problem.build_solver(de.timesteppers.SBDF1);
+	IVP_ADJ = problem.build_solver(de.timesteppers.MCNAB2);
 	logger.info('Solver built')
 
 	p_adj = IVP_ADJ.state['p_adj']; 
@@ -855,7 +855,7 @@ if __name__ == "__main__":
 
 
 	Re = 500.;  Ri = .5;
-	dt = 1e-03; #Or smaller if it doesn't converge
+	dt = 2.5e-04; #Or smaller if it doesn't converge
 	Nx = 96; Nz = 48;
 	T_opt = 10.; E_0 = 0.02
 	N_ITERS = int(T_opt/dt);
