@@ -5,6 +5,10 @@ from mpi4py import MPI # Import this before numpy
 import numpy as np
 import h5py,logging
 
+import dedalus.public as de
+#ts = de.timesteppers.SBDF1;
+ts = de.timesteppers.MCNAB2
+#ts = de.timesteppers.RK222
 
 ##########################################################################
 # ~~~~~ General Routines ~~~~~~~~~~~~~
@@ -331,7 +335,6 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 	Uz['g'] = -2.*z;
 	problem.parameters['Uz'] = Uz
 
-
 	problem.substitutions['Omega'] = "dx(w) - uz";
 
 	if Sim_Type == "Linear":
@@ -362,7 +365,7 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 	#problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)")
 
 	# Build solver
-	solver = problem.build_solver(de.timesteppers.MCNAB2);
+	solver = problem.build_solver(ts);
 	logger.info('Solver built')
 
 	# Set to info level rather than the debug default
@@ -457,7 +460,7 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.5, N_ITERS=500., 
 
 	return Field_to_Vec(domain,u ,w );
 
-def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1e-04, α = 0, ß = 0, Prandtl=1., δ  = 0.025):
+def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1e-04, α = 0, ß = 0,filename=None, Prandtl=1., δ  = 0.025):
 	
 	"""
 	Integrates the initial conditions FWD N_ITERS using RBC code
@@ -515,6 +518,9 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 	z       = domain.grid(1,scales=3/2);
 	b['g']  = -(1./2.)*erf(z/δ);
 	bz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));
+
+	if filename != None:
+		IVP_FWD.load_state(filename,index=0)
 
 	#######################################################
 	# evolution parameters
@@ -672,14 +678,14 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 	if (α == 0):
 
 		problem.add_equation("dt(b_adj) - (1./Pe)*(dx(dx(b_adj)) + dz(bz_adj))             - U*dx(b_adj) + Ri*w_adj  =  								 (uf*dx(b_adj) + wf*bz_adj)   				   ");
-		problem.add_equation("dt(u_adj) - (1./Re)*(dx(dx(u_adj)) + dz(uz_adj)) - dx(p_adj) - U*dx(u_adj) + w_adj*Uz  = -(u_adj*dx(uf) + w_adj*dz(uf) ) + (uf*dx(u_adj) + wf*uz_adj) - b_adj*dx(bf) - uf");
-		problem.add_equation("dt(w_adj) - (1./Re)*(dx(dx(w_adj)) + dz(wz_adj)) - dz(p_adj) - U*dx(w_adj) 		     = -(u_adj*dx(wf) + w_adj*dz(wf) ) + (uf*dx(w_adj) + wf*wz_adj) - b_adj*dz(bf) - wf");
+		problem.add_equation("dt(u_adj) - (1./Re)*(dx(dx(u_adj)) + dz(uz_adj)) - dx(p_adj) - U*dx(u_adj) 		     = -(u_adj*dx(uf) + w_adj*dx(wf) ) + (uf*dx(u_adj) + wf*uz_adj) - b_adj*dx(bf) - uf");
+		problem.add_equation("dt(w_adj) - (1./Re)*(dx(dx(w_adj)) + dz(wz_adj)) - dz(p_adj) - U*dx(w_adj) + u_adj*Uz  = -(u_adj*dz(uf) + w_adj*dz(wf) ) + (uf*dx(w_adj) + wf*wz_adj) - b_adj*dz(bf) - wf");
 	
 	elif (α == 1):
 	
 		problem.add_equation("dt(b_adj) - (1./Pe)*(dx(dx(b_adj)) + dz(bz_adj))             - U*dx(b_adj) + Ri*w_adj  =  								 (uf*dx(b_adj) + wf*bz_adj)   			  ");
-		problem.add_equation("dt(u_adj) - (1./Re)*(dx(dx(u_adj)) + dz(uz_adj)) - dx(p_adj) - U*dx(u_adj) + w_adj*Uz  = -(u_adj*dx(uf) + w_adj*dz(uf) ) + (uf*dx(u_adj) + wf*uz_adj) - b_adj*dx(bf)");
-		problem.add_equation("dt(w_adj) - (1./Re)*(dx(dx(w_adj)) + dz(wz_adj)) - dz(p_adj) - U*dx(w_adj) 		     = -(u_adj*dx(wf) + w_adj*dz(wf) ) + (uf*dx(w_adj) + wf*wz_adj) - b_adj*dz(bf)");
+		problem.add_equation("dt(u_adj) - (1./Re)*(dx(dx(u_adj)) + dz(uz_adj)) - dx(p_adj) - U*dx(u_adj)             = -(u_adj*dx(uf) + w_adj*dx(wf) ) + (uf*dx(u_adj) + wf*uz_adj) - b_adj*dx(bf)");
+		problem.add_equation("dt(w_adj) - (1./Re)*(dx(dx(w_adj)) + dz(wz_adj)) - dz(p_adj) - U*dx(w_adj) + u_adj*Uz  = -(u_adj*dz(uf) + w_adj*dz(wf) ) + (uf*dx(w_adj) + wf*wz_adj) - b_adj*dz(bf)");
 	
 
 
@@ -701,7 +707,7 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 
 
 	# Build solver
-	IVP_ADJ = problem.build_solver(de.timesteppers.MCNAB2);
+	IVP_ADJ = problem.build_solver(ts);
 	logger.info('Solver built')
 
 	p_adj = IVP_ADJ.state['p_adj']; 
@@ -854,12 +860,14 @@ elif Adjoint_type == "Continuous":
 if __name__ == "__main__":
 
 
-	Re = 500.;  Ri = .5;
-	dt = 2.5e-04; #Or smaller if it doesn't converge
-	Nx = 128; Nz = 48;
+	Re = 500.;  Ri = 0.5;
+	dt = 2.5e-04;
+	Nx = 128; Nz = 64;
 	T_opt = 10.; E_0 = 0.02
 	N_ITERS = int(T_opt/dt);
 	
+	#STR = "/workspace/pmannix/Discrete_Adjoint_Poiseuille/Test_dt1e-03_RK2/CheckPoints_iter_9.h5"
+
 	# (A) time-averaged-kinetic-energy maximisation (α = 0)
 	# (B) mix-norm minimisation (α = 1, β = 1)
 	# (C) variance minimisation (α = 1, β = 0)
@@ -868,8 +876,12 @@ if __name__ == "__main__":
 
 	domain, Ux0  = Generate_IC(Nx,Nz);
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
-	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß];
+	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß];#, STR];
 	args_IP = [domain,None];
+
+	
+	#FWD_Solve_Cnts(Ux0, *args_f)
+	#sys.exit();
 
 	sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 	
@@ -881,7 +893,7 @@ if __name__ == "__main__":
 
 	# Run the optimisation
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-04, max_iters = 20, alpha_k = 1., LS = 'LS_armijo', CG = True, callback=File_Manips)
+	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-04, max_iters = 50, alpha_k = 1., LS = 'LS_armijo', CG = False, callback=File_Manips)
 
 	plot_optimisation(RESIDUAL,FUNCT);
 	
