@@ -860,9 +860,10 @@ elif Adjoint_type == "Continuous":
 if __name__ == "__main__":
 
 
-	Re = 500.;  Ri = 0.5;
+	Re = 500.;  
 	dt = 2.5e-04;
-	Nx = 128; Nz = 64;
+	Ri = 0.0; Nx = 128; Nz = 64;
+	#Ri = 0.5; Nx = 256; Nz = 96;
 	T_opt = 10.; E_0 = 0.02
 	N_ITERS = int(T_opt/dt);
 	
