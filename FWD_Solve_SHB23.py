@@ -159,7 +159,7 @@ def Inner_Prod_Cnts(x,y,domain,Type_xy='np_vector'):
 
 # @ Calum add the discrete forward here - if neccessary ?
 def Inner_Prod_Discrete(x,y,W,Vol):
-	ip = np.dot(x,y)
+	ip = np.dot(x,W*y)/Vol
 	return ip
 
 def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0,Type_IP = 'Field'):
@@ -222,7 +222,10 @@ def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0,Type_IP = 'Field'):
 	rand = np.random.RandomState(seed=42)
 	noise = rand.standard_normal(gshape)[slices];
 	phi['g'] = noise;
-	filter_field(phi)
+	if(Adjoint_type=='Discrete'):
+		filter_field(phi,frac=0.25)
+	else:
+		filter_field(phi)
 
 	if Adjoint_type == "Discrete":
 		z = domain.grid(0, scales=1)
@@ -235,12 +238,13 @@ def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0,Type_IP = 'Field'):
 			else:
 				W[i] = 0.5*(z[i]-z[i-1]) + 0.5*(z[i+1]-z[i]);
 		# 3) Normalise it, integrate it, Re-normalise
-		SUM      = Inner_Prod(phi['g'],W*phi['g'],W,domain.hypervolume)/domain.hypervolume;
+		SUM      = Inner_Prod(phi['g'],phi['g'],W,domain.hypervolume);
+
 		phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
 
 		phi['g'] = FWD_Solve_IVP_PREP([phi], domain)['g']
 
-		SUM      = Inner_Prod(phi['g'],W*phi['g'],W,domain.hypervolume)/domain.hypervolume;
+		SUM      = Inner_Prod(phi['g'],phi['g'],W,domain.hypervolume);
 		phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
 	else:
 		# 3) Normalise it, integrate it, Re-normalise
@@ -539,6 +543,8 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 		a = transformInverse(vec)
 		a = 2*a**2 - a**3
 		a = transform(a)
+		# Dealias
+		a[int(len(a)//2):] = 0
 		return a
 	rhsD  = field.Field(domain, name='rhsD')
 	rhsD1  = field.Field(domain, name='rhsD1')
@@ -586,7 +592,7 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 		#h.setLevel("WARNING");
 		h.setLevel("INFO");
 
-	return (-1.)*cost;
+	return (-1.)*cost/domain.hypervolume;
 
 ##########################################################################
 # ~~~~~ ADJ Solvers + Comptability Condition ~~~~~~~~~~~~~
@@ -759,10 +765,13 @@ def ADJ_Solve_IVP_Discrete(X_k, domain,  X_FWD_DICT, N_ITERS,M, dt=1e-02, filena
 	IVP_ADJ = problem.build_solver();
 
 	def NLtermAdj(vec,vecb):
-	    a = transformAdjoint(vec)
-	    a = 4*vecb*a - 3*vecb**2*a
-	    a = transformInverseAdjoint(a)
-	    return a
+		a = vec.copy()
+		# Dealias
+		a[int(len(a)//2):] = 0
+		a = transformAdjoint(vec)
+		a = 4*vecb*a - 3*vecb**2*a
+		a = transformInverseAdjoint(a)
+		return a
 
 	#######################################################
 	logger.info("\n\n --> Timestepping ADJ_Solve ");
@@ -796,7 +805,7 @@ def ADJ_Solve_IVP_Discrete(X_k, domain,  X_FWD_DICT, N_ITERS,M, dt=1e-02, filena
 	for h in root.handlers:
 		#h.setLevel("WARNING");
 		h.setLevel("INFO");
-	return [-Ux0];
+	return [-Ux0/W];
 
 def File_Manips(k):
 
@@ -845,12 +854,14 @@ if __name__ == "__main__":
 	L_z  = 40.0;
 	M_0  = 0.002;
 
+	if Adjoint_type == "Discrete":
+		dealias = 2
+		Npts *= dealias
 	Z_Domain = (-L_z/2.,L_z/2.);
 	N_ITERS  = int(20./dt);
 
 	domain, X0  = Generate_IC(Npts,Z_Domain,M_0);
 	X_FWD_DICT  = GEN_BUFFER(Npts, domain, N_ITERS)
-
 
 	if Adjoint_type == "Discrete":
 		# Very simple weight matrix
@@ -870,13 +881,10 @@ if __name__ == "__main__":
 		args_IP = (domain,'np_vector');
 		args_f  = (domain, X_FWD_DICT, N_ITERS);
 
-
-
 	# 1) Test the Gradient
 	from TestGrad import Adjoint_Gradient_Test
 	dummy_var, dX0  = Generate_IC(Npts,Z_Domain,M_0);
 	Adjoint_Gradient_Test(X0,dX0 ,FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
-
 
 	# 2) Call the optimisation
 	# sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
