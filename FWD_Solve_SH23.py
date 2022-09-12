@@ -165,7 +165,7 @@ def Inner_Prod(x,y,domain,rand_arg=None):
 
 	return Integrate_Field(domain, dA*dB );
 
-def Generate_IC(Npts, X = (0.,12.*np.pi), M_0=1.0):
+def Generate_IC(M_0=1.0, Npts = 256, X = (0.,12.*np.pi)):
 	"""
 	Generate a domain object and initial conditions from which the optimisation can proceed
 
@@ -229,7 +229,7 @@ def Generate_IC(Npts, X = (0.,12.*np.pi), M_0=1.0):
 
 	return domain, Field_to_Vec(domain,phi);
 
-def GEN_BUFFER(Npts, domain, N_SUB_ITERS):
+def GEN_BUFFER(domain, N_SUB_ITERS,Npts=256):
 
 	"""
 	Given the resolution and number of N_SUB_ITERS
@@ -470,7 +470,6 @@ def FWD_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT,filenam
 	#######################################################
 
 	X0 = X_k[0];
-
 	Vec_to_Field(domain,u,X0)
 
 	if filename != None:
@@ -789,24 +788,34 @@ def File_Manips(k):
 
 if __name__ == "__main__":
 
-	dt = 0.1; Npts =256; X_domain = (0.,12.*np.pi)
-	N_ITERS = int(50./dt);
-	N_SUB_ITERS = N_ITERS//1;
 	M_0 = 0.0725;
+	dt  = 0.1;
+	N_ITERS     = int(50./dt);
+	N_SUB_ITERS = N_ITERS//1;
 
-	domain, X_0  = Generate_IC(Npts,X_domain,M_0);
-	X_FWD_DICT   = GEN_BUFFER(Npts, domain, N_SUB_ITERS)
+	domain, X_0  = Generate_IC(M_0);
+	X_FWD_DICT   = GEN_BUFFER(domain, N_SUB_ITERS)
 
+	#Adjoint_type = "Discrete";
+	Adjoint_type = "Continuous";
 	args_IP = (domain,None);
+	args_f  = [domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT, None, Adjoint_type];
 
 	sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
+	
+	#from TestGrad import Adjoint_Gradient_Test
+	#domain, X_0  = Generate_IC(1.);
+	#_     , dX_0 = Generate_IC(1.);
+	#Adjoint_Gradient_Test(X_0,dX_0,FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP)
+	#sys.exit()
+
+
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	
-	# CNTS SD
-	#Adjoint_type = "Continuous";
-	#args_f  = [domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT, None, Adjoint_type];
-	#RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[M_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,max_iters=100,LS = 'LS_armijo', CG = False,callback=File_Manips)
-	
+	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[M_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,max_iters=100,LS = 'LS_armijo', CG = True,callback=File_Manips)
+	plot_optimisation(RESIDUAL,FUNCT);
+	#'''
+
+	'''
 	# Save the different errors 
 	DAL_file = h5py.File('/Users/pmannix/Desktop/Nice_CASTOR/Discrete_Adjoint_SH23/LS_TEST_MP_0.0725_DISC_SD/DAL_PROGRESS.h5', 'r+')
 
@@ -816,37 +825,5 @@ if __name__ == "__main__":
 	X_0 	 = DAL_file['X_opt'][0];
 	
 	DAL_file.close();    
-
-	# DISC SD
-	#Adjoint_type = "Discrete";
-	#args_f  = [domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT, None, Adjoint_type];
-	#RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[M_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,max_iters=100,LS = 'LS_armijo', CG = False,callback=File_Manips)
-	
-
-	# CNTS CG
-	#Adjoint_type = "Continuous";
-	#args_f  = [domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT, None, Adjoint_type];
-	#RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[M_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,max_iters=100,LS = 'LS_wolfe', CG = True,callback=File_Manips)
-	
-	# DISC CG
-	#Adjoint_type = "Discrete";
-	#args_f  = [domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT, None, Adjoint_type];
-	#RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[M_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,max_iters=100,LS = 'LS_wolfe', CG = True,callback=File_Manips)
-	
-
-	#RESIDUAL = [RESIDUAL_CNTS_SD, RESIDUAL_DISC_SD];
-	#FUNCT 	 = [FUNCT_CNTS_SD,    FUNCT_DISC_SD   ];
-
-	plot_optimisation([RESIDUAL],[FUNCT]);
-
 	'''
-	# FWD Solve
-	#J_obj = FWD_Solve_IVP_Lin(X0,*args,filename);
-
-	# ADJ Solve
-	#dJdB0 = ADJ_Solve_IVP_Lin(X0,*args);
-
-	from TestGrad import Adjoint_Gradient_Test
-	dummy_var, dX0  = Generate_IC(Npts,X_domain,M_0);
-	Adjoint_Gradient_Test(X0,dX0,	*args_f)
-	'''
+	###

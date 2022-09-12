@@ -43,25 +43,36 @@ def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	logger.info("JB0 FWD_Solve running .... \n")
 	start_time = time.time()
-	J_ref 	   = FWD_Solve([X0],	*args_f);
+	if isinstance(X0, list):
+		J_ref 	   = FWD_Solve(X0  ,	*args_f);
+	else:	
+		J_ref 	   = FWD_Solve([X0],	*args_f);
 	end_time   = time.time()
 	print('Total time fwd: %f' %(end_time-start_time))
 	
 
 	logger.info("dJ Adjoint_Solve running .... \n")
 	start_time = time.time()
-	dJdX 	   = ADJ_Solve([X0],	*args_f)[0];
+	if isinstance(X0, list):
+		dJdX 	   = ADJ_Solve(X0  ,	*args_f);
+	else:	
+		dJdX 	   = ADJ_Solve([X0],	*args_f);
 	end_time   = time.time()
 	print('Total time adjoint: %f' %(end_time-start_time))
 
 	logger.info("Computing Inner product <dL/dB,dB >_adj  .... \n")
-	W_ADJ  = Inner_Prod(dX0,dJdX,*args_IP);
+	if isinstance(dX0, list):
+		W_ADJ = 0.
+		for f,g in zip(dX0,dJdX):
+			W_ADJ += Inner_Prod(f,g,*args_IP);
+	else:
+		W_ADJ = Inner_Prod(dX0,dJdX[0],*args_IP)		
 
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	# (2) Loop for (A) W_fd = <dL/dB,dB >_fd, (B) W_adj = <dL/dB,dB >_adj  
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	epsilon = 1e-01;
+	epsilon = 1e-04;
 	logger.info('epsilon = %e'%epsilon)
 
 	N_test = 5;
@@ -75,8 +86,11 @@ def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
 
 		TAY_R  = 0.0; # Compute the Taylor remainder -- checks if we've a gradient
 		TAY_R2 = 0.0; # Compute the 2^nd Taylor remainder -- checks convergence of adjoint
-
-		J_fd = FWD_Solve([X0 + epsilon*dX0],	*args_f)
+		if isinstance(X0, list) and isinstance(dX0, list):
+			Pert = [f + epsilon*g  for f,g in zip(X0,dX0)];	
+			J_fd = FWD_Solve( Pert,	*args_f);
+		else:
+			J_fd = FWD_Solve([X0 + epsilon*dX0],	*args_f);
 
 		TAY_R  = abs(J_fd - J_ref); # Should go like O(h);
 		TAY_R2 = abs(J_fd - J_ref - epsilon*W_ADJ); # Should go like O(h^2);
