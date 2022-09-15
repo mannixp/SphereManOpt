@@ -189,6 +189,14 @@ def Plot_Spectra(file_names,times,LEN,CAD,Just_B):
 		KE = file['tasks/kx Kinetic  energy'][:,:,0]; 
 		KB = file['tasks/kx Buoyancy energy'][:,:,0];
 
+		try:
+			Tz = file['scales/(T,T)z'][()];
+		except: 
+			Tz = file['scales/Tz'][()];
+
+		TE = file['tasks/Tz Kinetic  energy'][:,0,:]; 
+		TB = file['tasks/Tz Buoyancy energy'][:,0,:];
+
 		for i in range(len(times)):
 
 			index = times[i]; # The instant at which we plot out the vector
@@ -222,6 +230,41 @@ def Plot_Spectra(file_names,times,LEN,CAD,Just_B):
 			plt.tight_layout(pad=1, w_pad=1.5)
 			fig.savefig(outfile, dpi=dpi);
 			#plt.show()
+
+
+		for i in range(len(times)):
+
+			index = times[i]; # The instant at which we plot out the vector
+
+			outfile = "".join(['Cheb_PLOTS_Tz_Iter_i%i_Time_t%i.pdf'%(k,index) ]);	
+		
+			##########################################################################
+			# ~~~~~~~~~~~~~~~~~~~ plotting Magnetic B ~~~~~~~~~~~~~~~~~~~~~
+			##########################################################################
+
+			dpi = 1200;
+			fig, a =  plt.subplots(1,2,figsize=(8,6));
+
+			LABEL = r'$<X,X>$'	
+			a[0].semilogy(Tz,abs(TE[index,:]),'b.',label=r'$<u^2 + w^2>_{i=%i}$'%i);#,fontsize=25);
+			a[1].semilogy(Tz,abs(TB[index,:]),'k.',label=r'$<b^2>_{i=%i}$'%i);#,fontsize=25);
+
+			# Set their labels
+			a[0].set_title(r'$<u^2 + w^2>(Tz)$ Kinetic  Energy')
+			a[0].set_ylabel(LABEL);
+			a[0].legend()
+			a[0].set_xlim([np.min(Tz),np.max(Tz)])
+			a[0].grid()
+
+			a[1].set_title(r'$<b,b>(Tz)$ Buoyancy Energy');
+			a[1].set_ylabel(LABEL);
+			a[1].legend()
+			a[1].set_xlim([np.min(Tz),np.max(Tz)])
+			a[1].grid()
+
+			plt.tight_layout(pad=1, w_pad=1.5)
+			fig.savefig(outfile, dpi=dpi);
+			#plt.show()	
 			
 
 	return None;
@@ -238,26 +281,29 @@ if __name__ == "__main__":
 	##########################################################################	
 	
 	Scalar_data_filenames = glob.glob('./scalar_data_iter_*.h5');
+	#Scalar_data_filenames = glob.glob('./RES_*/scalar_data/scalar_data_s1.h5');
 	#Scalar_data_filenames = ['scalar_data/scalar_data_s1.h5']
 	
+	print(Scalar_data_filenames)
 	LEN = len(Scalar_data_filenames);
-	Plot_Cadence = 5;	
+	Plot_Cadence = 1;	
 	Normalised_B = False;
 	Logscale = True;
 
 	# Useful for examing the energetics of the magnetic fields different components
 	Plot_scalar_data(Scalar_data_filenames,LEN,Plot_Cadence,Normalised_B,Logscale)
-	#sys.exit()
+	
 	##########################################################################
 	# Full Checkpoints filenames
 	##########################################################################
 
 	Checkpoints_filenames = glob.glob('./CheckPoints_iter_*.h5');
+	#Checkpoints_filenames = glob.glob('./Test_*/CheckPoints/CheckPoints_s1.h5');
 	#Checkpoints_filenames = ['CheckPoints/CheckPoints_s1.h5']
 
 	LEN = len(Checkpoints_filenames);
-	Plot_Cadence = 5;
-	times = [0,-1]; #First and Last Checkpoints
+	Plot_Cadence = 1;
+	times = [0,-1]; # First and Last Checkpoints
 	Just_B = False; # If True only plots B-field
 
 	Plot_U_and_B(Checkpoints_filenames,times,LEN,Plot_Cadence,Just_B)

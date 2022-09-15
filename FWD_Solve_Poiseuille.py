@@ -6,15 +6,15 @@ import numpy as np
 import h5py,logging
 
 import dedalus.public as de
-#ts = de.timesteppers.SBDF1;
-ts = de.timesteppers.MCNAB2
+ts = de.timesteppers.SBDF1;
+#ts = de.timesteppers.MCNAB2
 #ts = de.timesteppers.RK222
 
 ##########################################################################
 # ~~~~~ General Routines ~~~~~~~~~~~~~
 ##########################################################################
 
-def filter_field(field,frac=0.25):
+def filter_field(field,frac=0.5):
     
 	"""
 	Given a dedalus field object, set "frac" of the highest wave_number coefficients to zero
@@ -170,6 +170,12 @@ def Inner_Prod_Cnts(x,y,domain,rand_arg=None):
 
 	return Integrate_Field(domain, (dA*du) + (dB*dv) );
 
+# @ Calum add the discrete IP here
+def Inner_Prod_Discrete(X_k,some_args):
+
+	return None;
+
+
 # Works for U_vec,Uz_vec currently
 def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02):
 	"""
@@ -205,7 +211,12 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02):
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	dealias_scale = 3/2;
 	x_basis = de.Fourier(  'x', Nx, interval=X_domain, dealias=dealias_scale); # x
-	z_basis = de.Chebyshev('z', Nz, interval=Z_domain, dealias=dealias_scale); # z
+	#z_basis = de.Chebyshev('z', Nz, interval=Z_domain, dealias=dealias_scale); # z
+	
+	zb1     = de.Chebyshev('z1', Nz, interval=(-1, 0.) )
+	zb2     = de.Chebyshev('z2', Nz, interval=(0., 1.) )
+	z_basis = de.Compound('z', (zb1,zb2), dealias=3/2)
+
 	domain  = de.Domain([x_basis, z_basis], grid_dtype=np.float64);
 
 	# Part 2) Generate initial condition U0 = {u, w}
@@ -222,8 +233,10 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02):
 	z_bot = domain.bases[1].interval[0];
 	z_top = domain.bases[1].interval[1];
 	ψ['g'] = noise; #( (z - z_bot)*(z - z_top) )*(np.sin(x)**2);#*noise; # Could scale this ??? #noise*
+	
+	U0  = Field_to_Vec(domain,ψ,ψ);
+	'''
 	filter_field(ψ)   # Filter the noise, modify this for less noise
-
 	u = domain.new_field(name='u'); uz = domain.new_field(name='uz'); 
 	w = domain.new_field(name='w'); wz = domain.new_field(name='wz'); 
 
@@ -231,7 +244,8 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02):
 	ψ.differentiate('x',out=w); w.differentiate('z',out=wz);
 	u['g']  *= -1; 
 
-	U0  = Field_to_Vec(domain,u ,w );
+	U0  = Field_to_Vec(domain,u,w);
+	'''
 
 	# Create vector
 	U0 = FWD_Solve_IVP_Prep(U0,domain); 
@@ -361,8 +375,8 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 	problem.add_bc("left(w)  = 0")
 	problem.add_bc("right(u) = 0")
 	problem.add_bc("right(w) = 0", condition="(nx != 0)");
-	problem.add_bc("right(p) = 0", condition="(nx == 0)");
-	#problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)")
+	#problem.add_bc("right(p) = 0", condition="(nx == 0)");
+	problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)")
 
 	# Build solver
 	solver = problem.build_solver(ts);
@@ -375,7 +389,7 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 
 	return solver;
 
-def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.5, N_ITERS=500., dt=1e-03, Prandtl=1., δ  = 0.025):
+def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.5, N_ITERS=100., dt=1e-04, Prandtl=1., δ  = 0.025):
 	
 	"""
 	Integrates the initial conditions to satisfy bcs,
@@ -514,14 +528,14 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 	Vec_to_Field(domain,u ,w ,U0[0] );
 	#Vec_to_Field(domain,uz,wz,Uz0);
 
+	if filename != None:
+		IVP_FWD.load_state(filename,index=0)
+
 	from scipy.special import erf
 	z       = domain.grid(1,scales=3/2);
 	b['g']  = -(1./2.)*erf(z/δ);
 	bz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));
-
-	if filename != None:
-		IVP_FWD.load_state(filename,index=0)
-
+		
 	#######################################################
 	# evolution parameters
 	######################################################
@@ -533,12 +547,15 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 	#######################################################
 	# analysis tasks
 	#######################################################
-	analysis_CPT = IVP_FWD.evaluator.add_file_handler('CheckPoints', iter=N_ITERS, mode='overwrite');
+	analysis_CPT = IVP_FWD.evaluator.add_file_handler('CheckPoints', iter=N_ITERS/10, mode='overwrite');
 	analysis_CPT.add_system(IVP_FWD.state, layout='g', scales=3/2); 
 
 	analysis_CPT.add_task("Omega"							, layout='g', name="vorticity",scales=3/2); 
 	analysis_CPT.add_task("inv_Vol*integ( u**2 + w**2, 'z')", layout='c', name="kx Kinetic  energy"); 
 	analysis_CPT.add_task("inv_Vol*integ( b**2		 , 'z')", layout='c', name="kx Buoyancy energy"); 
+
+	analysis_CPT.add_task("inv_Vol*integ( u**2 + w**2, 'x')", layout='c', name="Tz Kinetic  energy"); 
+	analysis_CPT.add_task("inv_Vol*integ( b**2		 , 'x')", layout='c', name="Tz Buoyancy energy"); 
 
 
 	analysis1 	= IVP_FWD.evaluator.add_file_handler("scalar_data", iter=20, mode='overwrite');
@@ -703,8 +720,8 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 	problem.add_bc("left(w_adj)  = 0")
 	problem.add_bc("right(u_adj) = 0")
 	problem.add_bc("right(w_adj) = 0", condition="(nx != 0)");
-	problem.add_bc("right(p_adj) = 0", condition="(nx == 0)");
-
+	#problem.add_bc("right(p_adj) = 0", condition="(nx == 0)");
+	problem.add_bc("integ(p_adj,'z') = 0", condition="(nx == 0)")
 
 	# Build solver
 	IVP_ADJ = problem.build_solver(ts);
@@ -860,31 +877,23 @@ elif Adjoint_type == "Continuous":
 if __name__ == "__main__":
 
 
-	Re = 500.;  
-	dt = 2.5e-04;
-	Ri = 0.0; Nx = 128; Nz = 64;
-	#Ri = 0.5; Nx = 256; Nz = 96;
+	Re = 500.;  Ri = 0.05;
+	dt = 5e-04;
+	Nx = 256; 
+	Nz = 48; # Using a compound basis in z to resolve the erf(z) so the resolution will be double this
 	T_opt = 10.; E_0 = 0.02
 	N_ITERS = int(T_opt/dt);
 	
-	#STR = "/workspace/pmannix/Discrete_Adjoint_Poiseuille/Test_dt1e-03_RK2/CheckPoints_iter_9.h5"
-
-	# (A) time-averaged-kinetic-energy maximisation (α = 0)
-	# (B) mix-norm minimisation (α = 1, β = 1)
-	# (C) variance minimisation (α = 1, β = 0)
-	α = 0;
-	ß = 0;
+	
+	α = 0; ß = 0; # (A) time-averaged-kinetic-energy maximisation (α = 0)
+	#α = 1; ß = 1; # (B) mix-norm minimisation (α = 1, β = 1)
 
 	domain, Ux0  = Generate_IC(Nx,Nz);
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
-	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß];#, STR];
+	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß];
 	args_IP = [domain,None];
 
-	
-	#FWD_Solve_Cnts(Ux0, *args_f)
-	#sys.exit();
-
-	sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
+	#sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 	
 	# Test the gradient
 	#from TestGrad import Adjoint_Gradient_Test
@@ -894,7 +903,7 @@ if __name__ == "__main__":
 
 	# Run the optimisation
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-04, max_iters = 50, alpha_k = 1., LS = 'LS_armijo', CG = False, callback=File_Manips)
+	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=File_Manips)
 
 	plot_optimisation(RESIDUAL,FUNCT);
 	
