@@ -39,8 +39,11 @@ def Plot_KinematicB_scalar_data(file_names,LEN,CAD,Logscale_B):
 		x = time - time[0]*np.ones(len(time)); # Modify time so that it's zero'd
 		x = x[index:index_end]
 		
-		BE = file['tasks/Kinetic energy'][index:index_end,0];
-		
+		try:
+			BE = file['tasks/Kinetic energy'][index:index_end];
+		except:
+			BE = file['tasks/Kinetic energy'][index:index_end,0];
+
 		LABEL = r'$<u,u>$'	
 		a[0].plot(x,np.log10(BE),'-' ,label=r'$<u^2>_{i=%i}$'%i);#,fontsize=25);
 		a[1].plot(x,BE          ,'-.',label=r'$<u^2>_{i=%i}$'%i);#,fontsize=25);
@@ -86,53 +89,103 @@ def Plot_UB_pair(file_names,times,LEN,CAD):
 	Returns: None
 	
 	"""
-	fig = plt.figure(figsize=(14,4))
-	plt.xticks(fontsize=26 )
-	plt.yticks(fontsize=26 )
 
-	ax = plt.gca()
-	ax.yaxis.set_major_locator(plt.MaxNLocator(4));
+	for k in range(0,LEN,CAD):
 
-	for time in times:
+		outfile = "".join(['U_PLOTS_Iter_k=%i_SH23.pdf'%k ]); dpi=1200
 
-		outfile = "".join(['U_PLOTS_Time_t=%i_SH23.pdf'%time ]); dpi=1200
+		fig = plt.figure(figsize=(14,4))
+		plt.xticks(fontsize=26 )
+		plt.yticks(fontsize=26 )
 
+		ax = plt.gca()
+		ax.yaxis.set_major_locator(plt.MaxNLocator(4));
 
-		for k in range(0,LEN,CAD):
+		file = h5py.File(file_names[k],"r")
+		#print(file['scales/'].keys()); print(file['tasks/'].keys()) #useful commands
 
-			file = h5py.File(file_names[k],"r")
-			#print(file['scales/'].keys()); print(file['tasks/'].keys()) #useful commands
-
+		for time in times:
+			
 			#(time,x)
 			x = file['scales/z/1.5'][()];
 			u = file['tasks/u']; 
-
-			#kx = file['scales/kx'][()]#print(kx)
-			if (k == LEN - 1):
-				u_hat = file['tasks/u_hat'][time,:]; 
-				
-				u_hat = np.real(u_hat[:]*np.conj(u_hat[:]))
-				u_hat = 2.*np.pi*( 0.5*u_hat[0] + np.sum(u_hat[1:-1]) );
-				
-				print("\n\n E_t(u)=%e, time=%i \n\n"%(u_hat,time) )
 
 			if time == 0:	
 				plt.plot(x,u[time,:],'-',label=r'$M_2$',linewidth=2.)
 			elif time == -1:
 				plt.plot(x,u[time,:],':',label=r'$S_2$',linewidth=2.)	
 
-	#------------------------------------ #------------------------------------
-	# Save figure
-	plt.xlabel(r'$z$',fontsize=26)
-	plt.ylabel(r'$u(z)$',fontsize=26)
-	plt.xlim([np.min(x),np.max(x)])
-	plt.legend(fontsize=26)
-	#plt.grid()
-	plt.tight_layout(pad=1, w_pad=1.5)
-	fig.savefig(outfile, dpi=dpi)
-	#plt.show()
+		#------------------------------------ #------------------------------------
+		# Save figure
+		plt.xlabel(r'$z$',fontsize=26)
+		plt.ylabel(r'$u(z)$',fontsize=26)
+		plt.xlim([np.min(x),np.max(x)])
+		plt.legend(fontsize=26)
+		#plt.grid()
+		plt.tight_layout(pad=1, w_pad=1.5)
+		fig.savefig(outfile, dpi=dpi)
+		#plt.show()
 
 	return None;
+
+
+##########################################################################
+# Plot the spectrum 
+##########################################################################
+def Plot_KE(file_names,times,LEN,CAD):
+
+	"""
+	Plot the Magnetic & Velocity (Optional) fields, as determined by:
+	1) the Magnetic Iduction equation 
+	2) Full MHD equations
+
+	Input Parameters:
+
+	file_names = ['one_file','second_file'] - array like, with file-types .hdf5
+	times - integer: indicies of the CheckPoint(s) you wish to plot.... Depends on how the analysis_tasks are defined in FWD_Solve_TC_MHD
+	LEN - integer: Length of the filenames array
+	CAD - int: the cadence at which to plot of the details of files contained
+	Just_B - bool: If True Plots only the magnetic field components
+	
+	Returns: None
+	
+	"""
+
+	for k in range(0,LEN,CAD):
+
+		fig = plt.figure(figsize=(14,4))
+		plt.xticks(fontsize=26 )
+		plt.yticks(fontsize=26 )
+
+		ax = plt.gca()
+		ax.yaxis.set_major_locator(plt.MaxNLocator(4));
+
+		outfile = "".join(['KE_PLOTS_Iter_k=%i_SH23.pdf'%k ]); dpi=1200
+		
+		file = h5py.File(file_names[k],"r")
+		#print(file['scales/'].keys()); print(file['tasks/'].keys()) #useful commands
+
+		
+		for time in times:
+
+			Tz = file['scales/Tz'][()]#print(kx)
+			KE_hat = file['tasks/KE_hat'][time,:]; 
+
+			plt.semilogy(Tz,KE_hat,label='T=%e'%time)
+
+		#------------------------------------ #------------------------------------
+		# Save figure
+		plt.xlabel(r'$Tz$',fontsize=26)
+		plt.ylabel(r'$\hat{u}^2_n$',fontsize=26)
+		plt.xlim([np.min(Tz),np.max(Tz)])
+		plt.legend(fontsize=26)
+		#plt.grid()
+		plt.tight_layout(pad=1, w_pad=1.5)
+		fig.savefig(outfile, dpi=dpi)
+		#plt.show()
+
+	return None;
+
 
 if __name__ == "__main__":
 
@@ -144,7 +197,7 @@ if __name__ == "__main__":
 	#Scalar_data_filenames = ['scalar_data_iter_51.h5']
 
 	LEN = len(Scalar_data_filenames);
-	Plot_Cadence = 4;	
+	Plot_Cadence = 1;	
 	Logscale = True;
 
 	Plot_KinematicB_scalar_data(Scalar_data_filenames,LEN,Plot_Cadence,Logscale)
@@ -157,10 +210,11 @@ if __name__ == "__main__":
 	Checkpoints_filenames = glob.glob('./CheckPoints_iter_*.h5');
 	
 	LEN = len(Checkpoints_filenames);
-	Plot_Cadence = 4;
-	times = [0]; #First and Last Checkpoints
+	Plot_Cadence = 1;
+	times = [0,-1]; #First and Last Checkpoints
 	Just_B = False; # If True only plots B-field
 
+	#Plot_KE(Checkpoints_filenames,times,LEN,Plot_Cadence)
 	Plot_UB_pair(Checkpoints_filenames,times,LEN,Plot_Cadence)
 	
 	print("\n ----> Vector Field Plots Complete <------- \n")

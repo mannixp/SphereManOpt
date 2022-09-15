@@ -286,10 +286,19 @@ def GEN_BUFFER(Npts, domain, N_SUB_ITERS):
 	if MPI.COMM_WORLD.rank == 0:
 		print("Total memory =%f GB, and memory/core = %f GB"%(MPI.COMM_WORLD.Get_size()*Total,Total));
 
-	gshape  = tuple( domain.dist.coeff_layout.global_shape(scales=1) );
-	lcshape = tuple( domain.dist.coeff_layout.local_shape( scales=1) );
+	if	(Adjoint_type == "Discrete"):
 
-	SNAPS_SHAPE = (lcshape[0],N_SUB_ITERS+1);
+		gshape  = tuple( domain.dist.grid_layout.global_shape(scales=1) );
+		lgshape = tuple( domain.dist.grid_layout.local_shape( scales=1) );
+
+		SNAPS_SHAPE = (lgshape[0],N_SUB_ITERS+1);
+
+	elif (Adjoint_type == "Continuous"):
+
+		gshape  = tuple( domain.dist.coeff_layout.global_shape(scales=1) );
+		lcshape = tuple( domain.dist.coeff_layout.local_shape( scales=1) );
+
+		SNAPS_SHAPE = (lcshape[0],N_SUB_ITERS+1);
 
 	A_SNAPS = np.zeros(SNAPS_SHAPE,dtype=np.float64);
 
@@ -435,12 +444,15 @@ def FWD_Solve_IVP_Cnts(X_k, domain, X_FWD_DICT, N_ITERS, dt =1e-02,filename=None
 	#######################################################
 	# analysis tasks
 	#######################################################
+	
 	analysis_CPT = IVP_FWD.evaluator.add_file_handler('CheckPoints', iter=N_ITERS, mode='overwrite');
 	analysis_CPT.add_system(IVP_FWD.state, layout='g', scales=3/2);
 	analysis_CPT.add_task("u", name="u_hat", layout='c', scales=1);
+	analysis_CPT.add_task("u**2", name="KE_hat", layout='c', scales=1);
 
 	analysis1 = IVP_FWD.evaluator.add_file_handler("scalar_data", iter=20, mode='overwrite');
 	analysis1.add_task("inv_Vol*integ(u**2)", name="Kinetic energy")
+
 
 	#######################################################
 	logger.info("\n\n --> Timestepping FWD_Solve ");
@@ -483,7 +495,7 @@ def FWD_Solve_IVP_Cnts(X_k, domain, X_FWD_DICT, N_ITERS, dt =1e-02,filename=None
 	# final statistics
 	post.merge_process_files("CheckPoints", cleanup=True, comm=MPI.COMM_WORLD);
 	post.merge_process_files("scalar_data", cleanup=True, comm=MPI.COMM_WORLD);
-	time.sleep(1);
+	time.sleep(.1);
 	logger.info("\n\n--> Complete <--\n")
 
 	logger.info('J(u) = %e'%J_TRAP );
@@ -513,6 +525,7 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 
 	problem = de.LBVP(domain, variables=['u', 'uz', 'uzz','uzzz'])
 	problem.parameters['a']  = -0.1;
+	problem.parameters['inv_Vol'] = 1./domain.hypervolume;
 	problem.parameters['dt'] = dt
 	problem.add_equation("u/dt + (1-a)*u + 2*uzz + dz(uzzz) = 0")
 	problem.add_equation("uz   - dz(u)   = 0");
@@ -533,15 +546,30 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 	IVP_FWD = problem.build_solver();
 
 	#######################################################
-	# set initial conditions
+	# FIX - analysis tasks
+	#######################################################
+	file = h5py.File('scalar_data_s1.h5', 'w');
+
+	scalars_tasks  = file.create_group('tasks');
+	scalars_scales = file.create_group('scales');
+	sim_time = [];
+	Kinetic_energy = [];
+
+
+	file = h5py.File('CheckPoints_s1.h5', 'w');
+
+	CheckPt_tasks  = file.create_group('tasks');
+	CheckPt_scales = file.create_group('scales');
+	z_save = CheckPt_scales.create_group('z');
+	z_save['1.5'] = domain.grid(0, scales=1);
+	u_save = np.zeros( (2,IVP_FWD.state['u']['g'].shape[0]) );
+
 	#######################################################
 
-	if filename != None:
-		IVP_FWD.load_state(filename,index=-1)
 
 	def NLterm(vec):
 		a = transformInverse(vec)
-		a = 2*a**2 - a**3
+		a = 2.*(a**2) - a**3
 		a = transform(a)
 		# Dealias
 		a[int(len(a)//2):] = 0
@@ -565,10 +593,23 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 
 	IVP_FWD.state['u']['c'] = transform(X_k[0])
 	snapshot_index = 0
-	X_FWD_DICT['A_fwd'][:,snapshot_index] = IVP_FWD.state['u']['g'].copy()
+
+	X_FWD_DICT['A_fwd'][:,snapshot_index] = IVP_FWD.state['u']['g'][:];#.copy()
 	snapshot_index+=1;
 	cost = np.linalg.norm(M*IVP_FWD.state['u']['g'])**2*dt
 	for i in range(N_ITERS):
+		
+		# Pass data to h5 file
+		#~~~~~~~~~~~	
+		Kinetic_energy.append( np.linalg.norm(M*IVP_FWD.state['u']['g'])**2 );
+		sim_time.append(i*dt);
+
+		if i == 0:
+			u_save[0,:] = IVP_FWD.state['u']['g'];
+		elif i == (N_ITERS-1):
+			u_save[1,:] = IVP_FWD.state['u']['g'];	
+		#~~~~~~~~~~~	
+
 		# Form rhs
 		rhsD['c'] = IVP_FWD.state['u']['c']/dt + NLterm(IVP_FWD.state['u']['c'])
 		######################## Solve the LBVP ########################
@@ -581,11 +622,17 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 			IVP_FWD.state.set_pencil(p, x)
 			IVP_FWD.state.scatter()
 		################################################################
-		X_FWD_DICT['A_fwd'][:,snapshot_index] = IVP_FWD.state['u']['g'].copy()
+		X_FWD_DICT['A_fwd'][:,snapshot_index] = IVP_FWD.state['u']['g'][:];#.copy()
 		snapshot_index+=1;
 		cost += np.linalg.norm(M*IVP_FWD.state['u']['g'])**2*dt
+	
+	# Save the files
+	scalars_tasks['Kinetic energy']  = Kinetic_energy
+	scalars_scales['sim_time'] = sim_time
 
-	# raise "Not implemented error"
+	CheckPt_tasks['u']  = u_save;
+	
+	file.close(); 
 
 	# Set to info level rather than the debug default
 	for h in root.handlers:
@@ -769,7 +816,7 @@ def ADJ_Solve_IVP_Discrete(X_k, domain,  X_FWD_DICT, N_ITERS,M, dt=1e-02, filena
 		# Dealias
 		a[int(len(a)//2):] = 0
 		a = transformAdjoint(vec)
-		a = 4*vecb*a - 3*vecb**2*a
+		a = (4.*vecb - 3.*(vecb**2))*a
 		a = transformInverseAdjoint(a)
 		return a
 
@@ -825,6 +872,14 @@ def File_Manips(k):
 		# B) Contains all state data
 		shutil.copyfile('CheckPoints/CheckPoints_s1.h5','CheckPoints_iter_%i.h5'%k);
 
+	
+	else:	
+		# A) Contains all scalar data
+		shutil.copyfile('scalar_data_s1.h5','scalar_data_iter_%i.h5'%k);
+
+		# B) Contains all state data
+		shutil.copyfile('CheckPoints_s1.h5','CheckPoints_iter_%i.h5'%k);	
+
 	# 3) Remove Surplus files at the end
 	#shutil.rmtree('snapshots');
 	#shutil.rmtree('Adjoint_CheckPoints');
@@ -833,6 +888,7 @@ def File_Manips(k):
 	return None;
 
 Adjoint_type = "Discrete";
+#Adjoint_type = "Continuous";
 
 if Adjoint_type == "Discrete":
 
@@ -852,7 +908,7 @@ if __name__ == "__main__":
 	dt   = 0.01;
 	Npts = 256;
 	L_z  = 40.0;
-	M_0  = 0.002;
+	M_0  = 0.0019;
 
 	if Adjoint_type == "Discrete":
 		dealias = 2
@@ -881,14 +937,16 @@ if __name__ == "__main__":
 		args_IP = (domain,'np_vector');
 		args_f  = (domain, X_FWD_DICT, N_ITERS);
 
+	sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
+		
 	# 1) Test the Gradient
 	from TestGrad import Adjoint_Gradient_Test
-	dummy_var, dX0  = Generate_IC(Npts,Z_Domain,M_0);
-	Adjoint_Gradient_Test(X0,dX0 ,FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
+	_, dX0  = Generate_IC(Npts,Z_Domain,M_0);
+	Adjoint_Gradient_Test([X0],[dX0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
+	sys.exit()
 
 	# 2) Call the optimisation
-	# sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-
-	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X0],[M_0],FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,err_tol = 1e-05,max_iters=50,LS = 'LS_armijo', CG = False,callback=File_Manips)
+	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X0],[M_0],FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,err_tol = 1e-06,max_iters=50,LS = 'LS_armijo', CG = False,callback=File_Manips)
+	
 	plot_optimisation(RESIDUAL,FUNCT);
