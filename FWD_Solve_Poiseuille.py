@@ -6,12 +6,67 @@ import numpy as np
 import h5py,logging
 
 import dedalus.public as de
+from dedalus.core import field
+from dedalus.core import system
+from scipy.fftpack import fft, dct
+
 ts = de.timesteppers.SBDF1;
 #ts = de.timesteppers.MCNAB2
 #ts = de.timesteppers.RK222
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
+
+##########################################################################
+# ~~~~~ Direct and adjoint transforms ~~~~~~~~~~~~~
+##########################################################################
+
+def transform(x):
+    ag  = field.Field(domain, name='ag') # tmp field for transforms
+    ag['g'] = x
+    b = ag[domain.dist.layouts[1]] ##FFT
+    b = dct(b,type=2,axis=1)/b.shape[-1]
+    b[:,0] *= 0.5
+    b[:,1::2] *= -1
+    return b
+
+def transformAdjoint(x):
+    ag  = field.Field(domain, name='ag') # tmp field for transforms
+    c = x.copy()
+    c[:,0] *= 0.5
+    c[:,1::2] *= -1
+    c[:,0]  *= np.sqrt((4*c.shape[-1]))
+    c[:,1:] *= np.sqrt((2*c.shape[-1]))
+    b = dct(c,type=3,norm='ortho',axis=1)/c.shape[-1]
+    b[1:,:] *= 1./2
+    ag[domain.dist.layouts[1]] = b
+    b = ag['g']/Nx
+
+    return b
+
+def transformInverse(x):
+    ag  = field.Field(domain, name='ag') # tmp field for transforms
+    c = x.copy()
+    c[:,1::2] *= -1
+    c[:,1:] *= 0.5
+    b = dct(c,type=3,axis=1)
+
+    ag[domain.dist.layouts[1]] = b
+    b = ag['g']
+    return b
+
+def transformInverseAdjoint(x):
+    ag  = field.Field(domain, name='ag') # tmp field for transforms
+    ag['g'] = x
+
+    b = ag[domain.dist.layouts[1]]*Nx
+    # b[1:,:] *= 1./2
+    b = dct(b,type=2,norm='ortho',axis=1)*np.sqrt(Ny)
+    b[:,1:] *= np.sqrt(2)
+    b[:,1:] *= 0.5
+    b[:,1::2] *= -1
+
+    return b
 
 ##########################################################################
 # ~~~~~ General Routines ~~~~~~~~~~~~~
@@ -190,7 +245,7 @@ def Inner_Prod_Discrete(x,y,domain,W):
 
 
 # Works for U_vec,Uz_vec currently
-def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealias_scale=3/2):
+def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealias_scale=3/2,W=None):
 	"""
 	Generate a domain object and initial conditions from which the optimisation can proceed
 
@@ -226,11 +281,15 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealia
 	x_basis = de.Fourier(  'x', Nx, interval=X_domain, dealias=dealias_scale); # x
 	#z_basis = de.Chebyshev('z', Nz, interval=Z_domain, dealias=dealias_scale); # z
 
-	zb1     = de.Chebyshev('z1', Nz, interval=(-1, 0.) )
-	zb2     = de.Chebyshev('z2', Nz, interval=(0., 1.) )
-	z_basis = de.Compound('z', (zb1,zb2), dealias=dealias_scale)
+	if(Adjoint_type=="Discrete"):
+		y_basis     = de.Chebyshev('z', Nz, interval=(-1, 1) )
+		domain  = de.Domain([x_basis, y_basis], grid_dtype=np.complex128);
+	else:
+		zb1     = de.Chebyshev('z1', Nz, interval=(-1, 0.) )
+		zb2     = de.Chebyshev('z2', Nz, interval=(0., 1.) )
+		z_basis = de.Compound('z', (zb1,zb2), dealias=dealias_scale)
 
-	domain  = de.Domain([x_basis, z_basis], grid_dtype=np.float64);
+		domain  = de.Domain([x_basis, z_basis], grid_dtype=np.float64);
 
 	# Part 2) Generate initial condition U0 = {u, w}
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -262,8 +321,27 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealia
 
 	# Create vector
 	U0 = FWD_Solve_IVP_Prep(U0,domain);
+	if Adjoint_type == "Discrete":
+		x = domain.grid(0, scales=1)
+		y = domain.grid(1, scales=1)
+		NxL = x.shape[0]
+		NyL = y.shape[1]
+		def weightMatrixDisc():
+			W = np.zeros((NxL,NyL))
+			# Mult by dy
+			for i in range(NyL):
+				if(i==0):
+					W[:,i] = y[0,i+1]-y[0,i]
+				else:
+					W[:,i] = y[0,i]-y[0,i-1]
+			dx = 4*np.pi/Nx
+			return W*dx
 
-	SUM = Inner_Prod(U0,U0,domain);
+		W = weightMatrixDisc()
+		M = np.sqrt(W)
+		SUM = Inner_Prod(U0,U0,domain,W);
+	else:
+		SUM = Inner_Prod(U0,U0,domain);
 	logger.info('Pre-scale (1/V)<U,U> = %e'%SUM);
 
 
@@ -545,7 +623,7 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 		IVP_FWD.load_state(filename,index=0)
 
 	from scipy.special import erf
-	z       = domain.grid(1,scales=3/2);
+	z       = domain.grid(1,scales=domain.dealias);
 	b['g']  = -(1./2.)*erf(z/δ);
 	bz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));
 
@@ -642,9 +720,211 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 	return J_obj;
 
 # @ Calum add the discrete forward here - if neccessary ?
-def FWD_Solve_Discrete(X_k,some_args):
+def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M,   dt=1e-04, α = 0, ß = 0,filename=None, Prandtl=1., δ  = 0.025):
 
-	return None;
+	Re = Reynolds
+	Pe = Reynolds*Prandtl
+	Ri = Richardson
+
+	ReInv = 1./Re
+
+	problem = de.LBVP(domain, variables=['u','v','rho','p','uy','vy','rhoy'])
+	problem.parameters['dt'] = dt
+	problem.parameters['ReInv'] = 1./Re
+	problem.parameters['Ri'] = Ri
+	problem.parameters['PeInv'] = 1./Pe
+
+	problem.add_equation("u/dt   - ReInv*(dx(dx(u)) + dz(uy)) + dx(p) = 0")
+	problem.add_equation("v/dt   - ReInv*(dx(dx(v)) + dz(vy)) + dz(p) + Ri*rho  = 0")
+	problem.add_equation("rho/dt - PeInv*(dx(dx(rho)) + dz(rhoy)) = 0")
+	problem.add_equation("dx(u) + vy = 0")
+	problem.add_equation("uy   - dz(u)   = 0");
+	problem.add_equation("vy   - dz(v)   = 0");
+	problem.add_equation("rhoy - dz(rho)   = 0");
+
+	problem.add_bc("left(u) = 0");
+	problem.add_bc("left(v) = 0");
+
+	problem.add_bc("right(u) = 0");
+	problem.add_bc("right(v) = 0",condition="(nx != 0)")
+	problem.add_equation("integ(p) = 0",condition="(nx == 0)");
+
+	problem.add_bc("left(rhoy) = 0");
+	problem.add_bc("right(rhoy) = 0");
+
+	solver = problem.build_solver()
+	############### Build the adjoint matrices ###############
+	solver.pencil_matsolvers_transposed = {}
+	for p in solver.pencils:
+	    solver.pencil_matsolvers_transposed[p] = solver.matsolver(np.conj(p.L_exp).T, solver)
+	##########################################################
+
+	u   = solver.state['u']
+	v   =  solver.state['v']
+	rho = solver.state['rho']
+	uy = solver.state['uy']
+	vy = solver.state['vy']
+	rhoy = solver.state['rhoy']
+
+	##########################################################
+
+	problemMN = de.LBVP(domain, variables=['rho_inv','rho_inv_y'])
+	problemMN.add_equation("dx(dx(rho_inv))+dz(rho_inv_y)=0")
+	problemMN.add_equation("rho_inv_y - dz(rho_inv)=0")
+	problemMN.add_bc("left(rho_inv) = 0");
+	problemMN.add_bc("right(rho_inv) = 0");
+
+	solverMN = problemMN.build_solver()
+	############### Build the adjoint matrices ###############
+	solverMN.pencil_matsolvers_transposed = {}
+	for p in solverMN.pencils:
+	    solverMN.pencil_matsolvers_transposed[p] = solverMN.matsolver(np.conj(p.L_exp).T, solverMN)
+	##########################################################
+	MN1   = field.Field(domain, name='MN1')
+	MN2   = field.Field(domain, name='MN2')
+	MN3   = field.Field(domain, name='MN3')
+	MN4   = field.Field(domain, name='MN4')
+	fields = [MN1,MN2,MN3,MN4]
+	MN_rhs = system.FieldSystem(fields)
+
+	MN1adj   = field.Field(domain, name='MN1adj')
+	MN2adj   = field.Field(domain, name='MN2adj')
+
+	fields = [MN1adj,MN2adj]
+	MNadj_rhs = system.FieldSystem(fields)
+
+	MN1L   = field.Field(domain, name='MN1L')
+	MN2L   = field.Field(domain, name='MN2L')
+	MN3L   = field.Field(domain, name='MN3L')
+	MN4L   = field.Field(domain, name='MN4L')
+	fields = [MN1L,MN2L,MN3L,MN4L]
+	MNadj_lhs = system.FieldSystem(fields)
+
+	rho_inv   = solverMN.state['rho_inv']
+	################################################################################
+
+	rhsU   = field.Field(domain, name='rhsU')
+	rhsV   = field.Field(domain, name='rhsV')
+	rhsRho = field.Field(domain, name='rhsRho')
+	rhsD4  = field.Field(domain, name='rhsD4')
+	rhsD5  = field.Field(domain, name='rhsD5')
+	rhsD6  = field.Field(domain, name='rhsD6')
+	rhsD7  = field.Field(domain, name='rhsD7')
+	rhsD8  = field.Field(domain, name='rhsD8')
+	rhsD9  = field.Field(domain, name='rhsD9')
+	rhsD10  = field.Field(domain, name='rhsD10')
+	rhsD11  = field.Field(domain, name='rhsD11')
+	rhsD12  = field.Field(domain, name='rhsD12')
+	rhsD13  = field.Field(domain, name='rhsD13')
+	rhsD14  = field.Field(domain, name='rhsD14')
+	fields = [rhsU,rhsV,rhsRho,rhsD4,rhsD5,rhsD6,rhsD7,rhsD8,rhsD9,rhsD10,rhsD11,rhsD12,rhsD13,rhsD14]
+	equ_rhs = system.FieldSystem(fields)
+
+	x = domain.grid(0)
+	y = domain.grid(1)
+
+	uBase = field.Field(domain, name='uBase')
+	uBase['g'] = 1-y**2
+
+	uyBase = field.Field(domain, name='uyBase')
+	uBase.differentiate(1, out=uyBase)
+
+	rhoBase = field.Field(domain, name='rhoBase')
+	from scipy import special
+	rhoBase['g'] = -0.5*special.erf(y/δ)
+
+	rhoyBase = field.Field(domain, name='rhoyBase')
+	rhoBase.differentiate(1, out=rhoyBase)
+
+	NxCL = u['c'].shape[0]
+	NyCL = u['c'].shape[1]
+
+	Nx = u['g'].shape[0]
+	Ny = u['g'].shape[1]
+
+	elements0 = domain.elements(0)
+	elements1 = domain.elements(1)
+
+	DA = np.zeros((NxCL,NyCL))
+	Nx0 =2*Nx//3
+	Ny0 = 2*Ny//3
+	for i in range(NxCL):
+		for j in range(NyCL):
+			if(elements0[i,0] < Nx0//2 and elements1[0,j] < Ny0):
+				DA[i,j] = 1
+
+	def NLterm(u,ux,uy,v,vx,vy,rho,rhox,rhoy):
+		NLu   = -transformInverse(u)*transformInverse(ux)   - transformInverse(v)*transformInverse(uy) + 2*ReInv
+		NLv   = -transformInverse(u)*transformInverse(vx)   - transformInverse(v)*transformInverse(vy)
+		NLrho = -transformInverse(u)*transformInverse(rhox) - transformInverse(v)*transformInverse(rhoy)
+		return DA*transform(NLu),DA*transform(NLv),DA*transform(NLrho)
+
+	def derivativeX(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] *= elements0[i]*1j
+		return vec
+
+	Vec_to_Field(domain,u ,v ,U0[0]);
+	# vecU = vec.reshape((2,NxL,NyL))[0,:,:]
+	# vecV = vec.reshape((2,NxL,NyL))[1,:,:]
+
+	u['c'] += uBase['c']
+	# states = []
+	# u['c'] = uBase['c'] + transform(vecU)
+	# v['c'] = transform(vecV)
+	rho['c'] = rhoBase['c']
+	u.differentiate(1, out=uy)
+	v.differentiate(1, out=vy)
+	rhoy['c'] = rhoyBase['c']
+
+	snapshot_index = 0
+
+	for i in range(N_ITERS):
+		ux   = derivativeX(u['c'].copy())
+		vx   = derivativeX(v['c'].copy())
+		rhox = derivativeX(rho['c'].copy())
+
+		X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c']
+		X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c']
+		X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho['c']
+		snapshot_index+=1;
+
+		NLu,NLv,NLrho = NLterm(u['c'],ux,uy['c'],v['c'],vx,vy['c'],rho['c'],rhox,rhoy['c'])
+		rhsU['c'] = solver.state['u']['c']/dt + NLu
+		rhsV['c'] = solver.state['v']['c']/dt + NLv
+		rhsRho['c'] = solver.state['rho']['c']/dt + NLrho
+		######################## Solve the LBVP ########################
+		equ_rhs.gather()
+		for p in solver.pencils:
+			b = p.pre_left @ equ_rhs.get_pencil(p)
+			x = solver.pencil_matsolvers[p].solve(b)
+			if p.pre_right is not None:
+				x = p.pre_right @ x
+			solver.state.set_pencil(p, x)
+			solver.state.scatter()
+		################################################################
+
+
+	######################## Solve the Mix Norm LBVP ########################
+	MN1['c'] = rho['c']
+	MN_rhs.gather()
+	for p in solverMN.pencils:
+		b = p.pre_left @ MN_rhs.get_pencil(p)
+		x = solverMN.pencil_matsolvers[p].solve(b)
+		if p.pre_right is not None:
+			x = p.pre_right @ x
+		solverMN.state.set_pencil(p, x)
+		solverMN.state.scatter()
+		################################################################
+
+	X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c']
+	X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c']
+	X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho_inv['c']
+	# states.append(transformInverse(rho_inv['c']).real)
+	# states.append(transformInverse(rho['c']))
+	cost = np.linalg.norm(M*rho_inv['g'])**2
+	cost = comm.allreduce(cost,op=MPI.SUM)
+	return cost;
 ##########################################################################
 # ~~~~~ ADJ Solvers  ~~~~~~~~~~~~~
 ##########################################################################
@@ -872,7 +1152,7 @@ def File_Manips(k):
 	return None;
 
 
-Adjoint_type = "Continuous";
+Adjoint_type = "Discrete";
 
 if Adjoint_type == "Discrete":
 
@@ -895,13 +1175,19 @@ if __name__ == "__main__":
 	Nx = 256;
 	Nz = 48; # Using a compound basis in z to resolve the erf(z) so the resolution will be double this
 	T_opt = 10.; E_0 = 0.02
+	T_opt = 10e-3
 	N_ITERS = int(T_opt/dt);
 
-
+	if(Adjoint_type=="Discrete"):
+		Nx = 3*Nx//2
+		Nz = 3*Nz//2
+		dealias_scale = 1
+	else:
+		dealias_scale = 3/2
 	α = 0; ß = 0; # (A) time-averaged-kinetic-energy maximisation (α = 0)
 	#α = 1; ß = 1; # (B) mix-norm minimisation (α = 1, β = 1)
 
-	domain, Ux0  = Generate_IC(Nx,Nz,dealias_scale=1);
+	domain, Ux0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
 
 	x = domain.grid(0, scales=1)
 	y = domain.grid(1, scales=1)
@@ -920,12 +1206,15 @@ if __name__ == "__main__":
 
 	W = weightMatrixDisc()
 	M = np.sqrt(W)
-	print(Inner_Prod_Cnts(Ux0,Ux0,domain))
-	print(Inner_Prod_Discrete(Ux0,Ux0,domain,W))
 
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
-	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß];
-	args_IP = [domain,None];
+
+	if(Adjoint_type=="Discrete"):
+		args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,M,dt, α,ß];
+		args_IP = [domain,W];
+	else:
+		args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß];
+		args_IP = [domain,None];
 
 	#sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 
