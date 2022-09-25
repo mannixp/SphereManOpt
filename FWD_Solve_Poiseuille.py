@@ -38,7 +38,7 @@ def transformAdjoint(x):
     c[:,0]  *= np.sqrt((4*c.shape[-1]))
     c[:,1:] *= np.sqrt((2*c.shape[-1]))
     b = dct(c,type=3,norm='ortho',axis=1)/c.shape[-1]
-    b[1:,:] *= 1./2
+
     ag[domain.dist.layouts[1]] = b
     b = ag['g']/Nx
 
@@ -60,13 +60,14 @@ def transformInverseAdjoint(x):
     ag['g'] = x
 
     b = ag[domain.dist.layouts[1]]*Nx
-    # b[1:,:] *= 1./2
+
     b = dct(b,type=2,norm='ortho',axis=1)*np.sqrt(Nz)
     b[:,1:] *= np.sqrt(2)
     b[:,1:] *= 0.5
     b[:,1::2] *= -1
 
     return b
+
 
 ##########################################################################
 # ~~~~~ General Routines ~~~~~~~~~~~~~
@@ -926,7 +927,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M, 
 
 	X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c']
 	X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c']
-	X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho_inv['c']
+	X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho_inv['c'].copy()
 	# states.append(transformInverse(rho_inv['c']).real)
 	# states.append(transformInverse(rho['c']))
 	cost = np.linalg.norm(M*rho_inv['g'])**2
@@ -1238,11 +1239,10 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,
 			vec[i,:] *= -elements0[i]*1j
 		return vec
 
-	Ny = Nz
 	def diffMat():
-		Dy = np.zeros((Ny,Ny))
-		for i in range(Ny):
-			for j in range(Ny):
+		Dy = np.zeros((Nz,Nz))
+		for i in range(Nz):
+			for j in range(Nz):
 				if(i<j):
 					Dy[i,j] = 2*j*((j-i) % 2)
 		Dy[0,:] /= 2
@@ -1275,8 +1275,10 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,
 			vec[i,:] = Dy.T@vec[i,:]
 		return vec
 	snapshot_index = -1
+
 	vec2 = 2*M*M*transformInverse(X_FWD_DICT['b_fwd'][:,:,snapshot_index])
 	snapshot_index -= 1
+
 	# print(vec2)
 	MN1adj['c'] = transformInverseAdjoint(vec2)
 	MNadj_rhs.gather()
