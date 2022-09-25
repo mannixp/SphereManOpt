@@ -61,7 +61,7 @@ def transformInverseAdjoint(x):
 
     b = ag[domain.dist.layouts[1]]*Nx
     # b[1:,:] *= 1./2
-    b = dct(b,type=2,norm='ortho',axis=1)*np.sqrt(Ny)
+    b = dct(b,type=2,norm='ortho',axis=1)*np.sqrt(Nz)
     b[:,1:] *= np.sqrt(2)
     b[:,1:] *= 0.5
     b[:,1::2] *= -1
@@ -240,6 +240,7 @@ def Inner_Prod_Discrete(x,y,domain,W):
 	Vec_to_Field(domain,du,dv, y);
 
 	inner_prod = (np.vdot(dA['g'],W*du['g']) + np.vdot(dB['g'],W*dv['g']))/domain.hypervolume
+
 	inner_prod = comm.allreduce(inner_prod,op=MPI.SUM)
 	return inner_prod;
 
@@ -722,6 +723,14 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 # @ Calum add the discrete forward here - if neccessary ?
 def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M,   dt=1e-04, α = 0, ß = 0,filename=None, Prandtl=1., δ  = 0.025):
 
+	# Set to info level rather than the debug default
+	root = logging.root
+	for h in root.handlers:
+		#h.setLevel("WARNING");
+		h.setLevel("INFO"); #h.setLevel("DEBUG")
+	logger = logging.getLogger(__name__)
+
+
 	Re = Reynolds
 	Pe = Reynolds*Prandtl
 	Ri = Richardson
@@ -839,15 +848,13 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M, 
 	NxCL = u['c'].shape[0]
 	NyCL = u['c'].shape[1]
 
-	Nx = u['g'].shape[0]
-	Ny = u['g'].shape[1]
-
 	elements0 = domain.elements(0)
 	elements1 = domain.elements(1)
 
 	DA = np.zeros((NxCL,NyCL))
-	Nx0 =2*Nx//3
-	Ny0 = 2*Ny//3
+
+	Nx0 = 2*Nx//3
+	Ny0 = 2*Nz//3
 	for i in range(NxCL):
 		for j in range(NyCL):
 			if(elements0[i,0] < Nx0//2 and elements1[0,j] < Ny0):
@@ -924,7 +931,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M, 
 	# states.append(transformInverse(rho['c']))
 	cost = np.linalg.norm(M*rho_inv['g'])**2
 	cost = comm.allreduce(cost,op=MPI.SUM)
-	return cost;
+	return -cost;
 ##########################################################################
 # ~~~~~ ADJ Solvers  ~~~~~~~~~~~~~
 ##########################################################################
@@ -1091,9 +1098,275 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 
 
 # @ Calum add the discrete forward here
-def ADJ_Solve_Discrete(X_k,some_args):
+def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,  dt=1e-04, α = 0, ß = 0, Prandtl=1., δ  = 0.025, Sim_Type = "Non_Linear"):
 
-	return None;
+	# Set to info level rather than the debug default
+	root = logging.root
+	for h in root.handlers:
+		#h.setLevel("WARNING");
+		h.setLevel("INFO"); #h.setLevel("DEBUG")
+	logger = logging.getLogger(__name__)
+
+	Re = Reynolds
+	Pe = Reynolds*Prandtl
+	Ri = Richardson
+
+	ReInv = 1./Re
+
+	problem = de.LBVP(domain, variables=['u','v','rho','p','uy','vy','rhoy'])
+	problem.parameters['dt'] = dt
+	problem.parameters['ReInv'] = 1./Re
+	problem.parameters['Ri'] = Ri
+	problem.parameters['PeInv'] = 1./Pe
+
+	problem.add_equation("u/dt   - ReInv*(dx(dx(u)) + dz(uy)) + dx(p) = 0")
+	problem.add_equation("v/dt   - ReInv*(dx(dx(v)) + dz(vy)) + dz(p) + Ri*rho  = 0")
+	problem.add_equation("rho/dt - PeInv*(dx(dx(rho)) + dz(rhoy)) = 0")
+	problem.add_equation("dx(u) + vy = 0")
+	problem.add_equation("uy   - dz(u)   = 0");
+	problem.add_equation("vy   - dz(v)   = 0");
+	problem.add_equation("rhoy - dz(rho)   = 0");
+
+	problem.add_bc("left(u) = 0");
+	problem.add_bc("left(v) = 0");
+
+	problem.add_bc("right(u) = 0");
+	problem.add_bc("right(v) = 0",condition="(nx != 0)")
+	problem.add_equation("integ(p) = 0",condition="(nx == 0)");
+
+	problem.add_bc("left(rhoy) = 0");
+	problem.add_bc("right(rhoy) = 0");
+
+	solver = problem.build_solver()
+	############### Build the adjoint matrices ###############
+	solver.pencil_matsolvers_transposed = {}
+	for p in solver.pencils:
+	    solver.pencil_matsolvers_transposed[p] = solver.matsolver(np.conj(p.L_exp).T, solver)
+	##########################################################
+
+	u   = solver.state['u']
+	v   =  solver.state['v']
+	rho = solver.state['rho']
+	uy = solver.state['uy']
+	vy = solver.state['vy']
+	rhoy = solver.state['rhoy']
+
+	##########################################################
+
+	problemMN = de.LBVP(domain, variables=['rho_inv','rho_inv_y'])
+	problemMN.add_equation("dx(dx(rho_inv))+dz(rho_inv_y)=0")
+	problemMN.add_equation("rho_inv_y - dz(rho_inv)=0")
+	problemMN.add_bc("left(rho_inv) = 0");
+	problemMN.add_bc("right(rho_inv) = 0");
+
+	solverMN = problemMN.build_solver()
+	############### Build the adjoint matrices ###############
+	solverMN.pencil_matsolvers_transposed = {}
+	for p in solverMN.pencils:
+	    solverMN.pencil_matsolvers_transposed[p] = solverMN.matsolver(np.conj(p.L_exp).T, solverMN)
+	##########################################################
+	MN1   = field.Field(domain, name='MN1')
+	MN2   = field.Field(domain, name='MN2')
+	MN3   = field.Field(domain, name='MN3')
+	MN4   = field.Field(domain, name='MN4')
+	fields = [MN1,MN2,MN3,MN4]
+	MN_rhs = system.FieldSystem(fields)
+
+	MN1adj   = field.Field(domain, name='MN1adj')
+	MN2adj   = field.Field(domain, name='MN2adj')
+
+	fields = [MN1adj,MN2adj]
+	MNadj_rhs = system.FieldSystem(fields)
+
+	MN1L   = field.Field(domain, name='MN1L')
+	MN2L   = field.Field(domain, name='MN2L')
+	MN3L   = field.Field(domain, name='MN3L')
+	MN4L   = field.Field(domain, name='MN4L')
+	fields = [MN1L,MN2L,MN3L,MN4L]
+	MNadj_lhs = system.FieldSystem(fields)
+
+	rho_inv   = solverMN.state['rho_inv']
+	################################################################################
+
+	uadj   = field.Field(domain, name='uadj')
+	uyadj  = field.Field(domain, name='uyadj')
+	vadj   = field.Field(domain, name='vadj')
+	vyadj  = field.Field(domain, name='vyadj')
+	padj   = field.Field(domain, name='padj')
+	rhoadj   = field.Field(domain, name='rhoadj')
+	rhoyadj  = field.Field(domain, name='rhoyadj')
+	fields = [uadj,vadj,rhoadj,padj,uyadj,vyadj,rhoyadj]
+	state_adj = system.FieldSystem(fields)
+
+	rhsUA  = field.Field(domain, name='rhsUA')
+	rhsVA  = field.Field(domain, name='rhsVA')
+	rhsRhoA  = field.Field(domain, name='rhsRhoA')
+	rhsPA  = field.Field(domain, name='rhsPA')
+	rhsUyA  = field.Field(domain, name='rhsUyA')
+	rhsVyA  = field.Field(domain, name='rhsVyA')
+	rhsRhoyA  = field.Field(domain, name='rhsRhoyA')
+	rhsA8  = field.Field(domain, name='rhsA8')
+	rhsA9  = field.Field(domain, name='rhsA9')
+	rhsA10  = field.Field(domain, name='rhsA10')
+	rhsA11  = field.Field(domain, name='rhsA11')
+	rhsA12  = field.Field(domain, name='rhsA12')
+	rhsA13  = field.Field(domain, name='rhsA13')
+	rhsA14  = field.Field(domain, name='rhsA14')
+	fields = [rhsUA,rhsVA,rhsRhoA,rhsPA,rhsUyA,rhsVyA,rhsRhoyA,rhsA8,rhsA9,rhsA10,rhsA11,rhsA12,rhsA13,rhsA14  ]
+	equ_adj = system.FieldSystem(fields)
+
+	elements0 = domain.elements(0)
+	elements1 = domain.elements(1)
+
+	def NLtermAdj(vec1adj,vec2adj,vec3adj,statess):
+		vec1adj = transformAdjoint(DA*vec1adj)
+		vec2adj = transformAdjoint(DA*vec2adj)
+		vec3adj = transformAdjoint(DA*vec3adj)
+		adju  = transformInverseAdjoint(-statess[1]*vec1adj - statess[4]*vec2adj - statess[7]*vec3adj)
+		adjux = transformInverseAdjoint(-statess[0]*vec1adj)
+		adjuy = transformInverseAdjoint(-statess[3]*vec1adj)
+		adjv  = transformInverseAdjoint(-statess[2]*vec1adj - statess[5]*vec2adj - statess[8]*vec3adj)
+		adjvx = transformInverseAdjoint(-statess[0]*vec2adj)
+		adjvy = transformInverseAdjoint(-statess[3]*vec2adj)
+		adjrho = transformInverseAdjoint(0*vec2adj)
+		adjrhox = transformInverseAdjoint(-statess[0]*vec3adj)
+		adjrhoy = transformInverseAdjoint(-statess[3]*vec3adj)
+		return adju,adjux,adjuy,adjv,adjvx,adjvy,adjrho,adjrhox,adjrhoy
+
+	def adjointDerivativeX(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] *= -elements0[i]*1j
+		return vec
+
+	Ny = Nz
+	def diffMat():
+		Dy = np.zeros((Ny,Ny))
+		for i in range(Ny):
+			for j in range(Ny):
+				if(i<j):
+					Dy[i,j] = 2*j*((j-i) % 2)
+		Dy[0,:] /= 2
+		return Dy
+	Dy = diffMat()
+
+	NxCL = uadj['c'].shape[0]
+	NyCL = uadj['c'].shape[1]
+	Nx0 = 2*Nx//3
+	Ny0 = 2*Nz//3
+	DA = np.zeros((NxCL,NyCL))
+	for i in range(NxCL):
+	    for j in range(NyCL):
+	        if(elements0[i,0] < Nx0//2 and elements1[0,j] < Ny0):
+	            DA[i,j] = 1
+
+
+	def derivativeX(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] *= elements0[i]*1j
+		return vec
+
+	def derivativeY(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] = Dy@vec[i,:]
+		return vec
+
+	def derivativeYAdjoint(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] = Dy.T@vec[i,:]
+		return vec
+	snapshot_index = -1
+	vec2 = 2*M*M*transformInverse(X_FWD_DICT['b_fwd'][:,:,snapshot_index])
+	snapshot_index -= 1
+	# print(vec2)
+	MN1adj['c'] = transformInverseAdjoint(vec2)
+	MNadj_rhs.gather()
+	# Solve system for each pencil, updating state
+	for p in solverMN.pencils:
+		if p.pre_right is not None:
+			vec = MNadj_rhs.get_pencil(p)
+			b = np.conj(p.pre_right).T @ vec
+		else:
+			b = state_adj.get_pencil(p)
+
+		x = solverMN.pencil_matsolvers_transposed[p].solve(b)
+		x = np.conj(p.pre_left).T @ x
+		MNadj_lhs.set_pencil(p, x)
+		MNadj_lhs.scatter()
+		#########################################################################
+
+
+	uadj['c'] = 0
+	uyadj['c'] = 0
+	vadj['c'] = 0
+	vyadj['c'] = 0
+	padj['c'] = 0
+	rhoadj['c'] = MN1L['c']
+	rhoyadj['c'] = 0
+	for i in range(N_ITERS):
+		######################## Solve the adjoint LBVP ########################
+		state_adj.gather()
+		# Solve system for each pencil, updating state
+		for p in solver.pencils:
+			if p.pre_right is not None:
+				vec = state_adj.get_pencil(p)
+				b = np.conj(p.pre_right).T @ vec
+			else:
+				b = state_adj.get_pencil(p)
+
+			x = solver.pencil_matsolvers_transposed[p].solve(b)
+			x = np.conj(p.pre_left).T @ x
+			equ_adj.set_pencil(p, x)
+			equ_adj.scatter()
+		#########################################################################
+		uadj['c'] = rhsUA['c'].copy()
+		vadj['c'] = rhsVA['c'].copy()
+		rhoadj['c'] = rhsRhoA['c'].copy()
+		uyadj['c'] = rhsUyA['c'].copy()
+		vyadj['c'] = rhsVyA['c'].copy()
+		rhoyadj['c'] = rhsRhoyA['c'].copy()
+
+		uDir = X_FWD_DICT['u_fwd'][:,:,snapshot_index]
+		vDir = X_FWD_DICT['w_fwd'][:,:,snapshot_index]
+		rhoDir = X_FWD_DICT['b_fwd'][:,:,snapshot_index]
+
+		uxDir = transformInverse(derivativeX(uDir.copy()))
+		uyDir = transformInverse(derivativeY(uDir.copy()))
+
+		vxDir = transformInverse(derivativeX(vDir.copy()))
+		vyDir = transformInverse(derivativeY(vDir.copy()))
+
+		rhoxDir = transformInverse(derivativeX(rhoDir.copy()))
+		rhoyDir = transformInverse(derivativeY(rhoDir.copy()))
+
+		uDir = transformInverse(uDir.copy())
+		vDir = transformInverse(vDir.copy())
+
+		states = [uDir,uxDir,uyDir,vDir,vxDir,vyDir,rhoDir,rhoxDir,rhoyDir]
+
+		snapshot_index -= 1
+
+		adju,adjux,adjuy,adjv,adjvx,adjvy,adjrho,adjrhox,adjrhoy = NLtermAdj(uadj['c'].copy(),vadj['c'].copy(),rhoadj['c'].copy(),states)
+		uadj['c']    = uadj['c']/dt   + adju     + adjointDerivativeX(adjux)
+		vadj['c']    = vadj['c']/dt   + adjv     + adjointDerivativeX(adjvx)
+		rhoadj['c']  = rhoadj['c']/dt + adjrho   + adjointDerivativeX(adjrhox)
+		uyadj['c']   = adjuy
+		vyadj['c']   = adjvy
+		rhoyadj['c'] = adjrhoy
+
+	uadj['c'] += derivativeYAdjoint(uyadj['c'])
+	vadj['c'] += derivativeYAdjoint(vyadj['c'])
+
+	W = M**2
+	uadj['g'] = -domain.hypervolume*transformAdjoint(uadj['c'])/W
+	vadj['g'] = -domain.hypervolume*transformAdjoint(vadj['c'])/W
+	# grad = np.array([transformAdjoint(uadj['c']),transformAdjoint(vadj['c'])])
+
+	# Set to info level rather than the debug default
+	for h in root.handlers:
+		#h.setLevel("WARNING");
+		h.setLevel("INFO");
+
+	return [ Field_to_Vec(domain,uadj ,vadj) ];
 
 #########################################################################
 # ~~~~~ Negative derivatives Solvers  ~~~~~~~~~~~~~
@@ -1175,10 +1448,11 @@ if __name__ == "__main__":
 	Nx = 256;
 	Nz = 48; # Using a compound basis in z to resolve the erf(z) so the resolution will be double this
 	T_opt = 10.; E_0 = 0.02
-	T_opt = 10e-3
+
 	N_ITERS = int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
+		Nz *= 2
 		Nx = 3*Nx//2
 		Nz = 3*Nz//2
 		dealias_scale = 1
@@ -1219,15 +1493,15 @@ if __name__ == "__main__":
 	#sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 
 	# Test the gradient
-	#from TestGrad import Adjoint_Gradient_Test
-	#_, dUx0  = Generate_IC(Nx,Nz);
-	#Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
+	from TestGrad import Adjoint_Gradient_Test
+	_, dUx0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
+	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
 	#sys.exit()
-
-	# Run the optimisation
-	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=File_Manips)
-
-	plot_optimisation(RESIDUAL,FUNCT);
+	#
+	# # Run the optimisation
+	# from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
+	# RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=File_Manips)
+	#
+	# plot_optimisation(RESIDUAL,FUNCT);
 
 	####
