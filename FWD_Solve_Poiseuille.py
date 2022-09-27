@@ -1452,7 +1452,7 @@ if __name__ == "__main__":
 	dt = 5e-04;
 	Nx = 256;
 	Nz = 48; # Using a compound basis in z to resolve the erf(z) so the resolution will be double this
-	T_opt = 0.1; E_0 = 0.02
+	T_opt = 10; E_0 = 0.02
 
 	N_ITERS = int(T_opt/dt);
 
