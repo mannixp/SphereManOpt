@@ -892,9 +892,9 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M, 
 		vx   = derivativeX(v['c'].copy())
 		rhox = derivativeX(rho['c'].copy())
 
-		X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c']
-		X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c']
-		X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho['c']
+		X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c'].copy()
+		X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c'].copy()
+		X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho['c'].copy()
 		snapshot_index+=1;
 
 		NLu,NLv,NLrho = NLterm(u['c'],ux,uy['c'],v['c'],vx,vy['c'],rho['c'],rhox,rhoy['c'])
@@ -925,8 +925,8 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M, 
 		solverMN.state.scatter()
 		################################################################
 
-	X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c']
-	X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c']
+	X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c'].copy()
+	X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c'].copy()
 	X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho_inv['c'].copy()
 	# states.append(transformInverse(rho_inv['c']).real)
 	# states.append(transformInverse(rho['c']))
@@ -1274,6 +1274,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,
 		for i in range(vec.shape[0]):
 			vec[i,:] = Dy.T@vec[i,:]
 		return vec
+
 	snapshot_index = -1
 
 	vec2 = 2*M*M*transformInverse(X_FWD_DICT['b_fwd'][:,:,snapshot_index])
@@ -1449,7 +1450,7 @@ if __name__ == "__main__":
 	dt = 5e-04;
 	Nx = 256;
 	Nz = 48; # Using a compound basis in z to resolve the erf(z) so the resolution will be double this
-	T_opt = 10.; E_0 = 0.02
+	T_opt = 10; E_0 = 0.02
 
 	N_ITERS = int(T_opt/dt);
 
