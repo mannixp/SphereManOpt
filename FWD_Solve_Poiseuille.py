@@ -6,22 +6,81 @@ import numpy as np
 import h5py,logging
 
 import dedalus.public as de
+from dedalus.core import field
+from dedalus.core import system
+from scipy.fftpack import fft, dct
+
 ts = de.timesteppers.SBDF1;
 #ts = de.timesteppers.MCNAB2
 #ts = de.timesteppers.RK222
+
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+
+##########################################################################
+# ~~~~~ Direct and adjoint transforms ~~~~~~~~~~~~~
+##########################################################################
+
+def transform(x):
+    ag  = field.Field(domain, name='ag') # tmp field for transforms
+    ag['g'] = x
+    b = ag[domain.dist.layouts[1]] ##FFT
+    b = dct(b,type=2,axis=1)/b.shape[-1]
+    b[:,0] *= 0.5
+    b[:,1::2] *= -1
+    return b
+
+def transformAdjoint(x):
+    ag  = field.Field(domain, name='ag') # tmp field for transforms
+    c = x.copy()
+    c[:,0] *= 0.5
+    c[:,1::2] *= -1
+    c[:,0]  *= np.sqrt((4*c.shape[-1]))
+    c[:,1:] *= np.sqrt((2*c.shape[-1]))
+    b = dct(c,type=3,norm='ortho',axis=1)/c.shape[-1]
+
+    ag[domain.dist.layouts[1]] = b
+    b = ag['g']/Nx
+
+    return b
+
+def transformInverse(x):
+    ag  = field.Field(domain, name='ag') # tmp field for transforms
+    c = x.copy()
+    c[:,1::2] *= -1
+    c[:,1:] *= 0.5
+    b = dct(c,type=3,axis=1)
+
+    ag[domain.dist.layouts[1]] = b
+    b = ag['g']
+    return b
+
+def transformInverseAdjoint(x):
+    ag  = field.Field(domain, name='ag') # tmp field for transforms
+    ag['g'] = x
+
+    b = ag[domain.dist.layouts[1]]*Nx
+
+    b = dct(b,type=2,norm='ortho',axis=1)*np.sqrt(Nz)
+    b[:,1:] *= np.sqrt(2)
+    b[:,1:] *= 0.5
+    b[:,1::2] *= -1
+
+    return b
+
 
 ##########################################################################
 # ~~~~~ General Routines ~~~~~~~~~~~~~
 ##########################################################################
 
 def filter_field(field,frac=0.5):
-    
+
 	"""
 	Given a dedalus field object, set "frac" of the highest wave_number coefficients to zero
 
 	Useful when initialising simulations with differentiated noise.
 
-	Input: 
+	Input:
 	dedlaus field object
 	frac = float in (0,1)
 
@@ -30,15 +89,15 @@ def filter_field(field,frac=0.5):
 	"""
 
 	field.require_coeff_space()
-	dom = field.domain                                                                                                                                                      
-	local_slice = dom.dist.coeff_layout.slices(scales=dom.dealias)                                                                                                          
-	coeff = []                                                                                                                                                              
+	dom = field.domain
+	local_slice = dom.dist.coeff_layout.slices(scales=dom.dealias)
+	coeff = []
 	for n in dom.global_coeff_shape:
-		coeff.append(np.linspace(0,1,n,endpoint=False))                                                                                             
+		coeff.append(np.linspace(0,1,n,endpoint=False))
 	cc = np.meshgrid(*coeff,indexing='ij')
-	field_filter = np.zeros(dom.local_coeff_shape,dtype='bool')                                                                                                             
-	for i in range(dom.dim):                                                                                                                                                
-		field_filter = field_filter | (cc[i][local_slice] > frac)                                                                                                           
+	field_filter = np.zeros(dom.local_coeff_shape,dtype='bool')
+	for i in range(dom.dim):
+		field_filter = field_filter | (cc[i][local_slice] > frac)
 	field['c'][field_filter] = 0j
 
 def new_ncc(domain, scales=True, keep_data=False, const=[]):
@@ -53,18 +112,18 @@ def new_ncc(domain, scales=True, keep_data=False, const=[]):
 	return field
 
 def Field_to_Vec(domain,Fx,Fz):
-	
+
 	"""
 	Convert from: field to numpy 1D vector-
-	
+
 	Takes the LOCAL portions of:
 	Inputs:
 	- GLOBALLY distributed fields Fx,Fz
-	- domain object 
+	- domain object
 
 	Creates locally available numpy arrays of a global size &
 	makes this array is available on all cores using MPI gather_all function
-	
+
 	This function assumes all arrays can fit in memory!!!
 
 	Returns:
@@ -74,7 +133,7 @@ def Field_to_Vec(domain,Fx,Fz):
 	# 1) Create local array of the necessary dimension
 	#lshape = domain.dist.grid_layout.local_shape(scales=domain.dealias)
 	gshape = tuple( domain.dist.grid_layout.global_shape(scales=domain.dealias) );
-	
+
 	for f in [Fx,Fz]:
 		f.set_scales(domain.dealias,keep_data=True);
 
@@ -92,7 +151,7 @@ def Field_to_Vec(domain,Fx,Fz):
 	# Parse distributed fields into arrays on every proc
 	for i in range( MPI.COMM_WORLD.Get_size() ):
 		FX[G_slices[i]] = Fx_global[i];
-		FZ[G_slices[i]] = Fz_global[i]; 
+		FZ[G_slices[i]] = Fz_global[i];
 
 	# 4) Merge them together at the end!
 	return np.concatenate( (FX.flatten(),FZ.flatten()) );
@@ -100,12 +159,12 @@ def Field_to_Vec(domain,Fx,Fz):
 def Vec_to_Field(domain,A,B,U0):
 
 	"""
-	Convert from: numpy 1D vector to field - 
-	Takes a 1D array U0 and distributes it into fields A,B on 
+	Convert from: numpy 1D vector to field -
+	Takes a 1D array U0 and distributes it into fields A,B on
 	num_procs = MPI.COMM_WORLD.size
 
 	Inputs:
-	- domain object 
+	- domain object
 	- GLOBALLY distributed dedalus fields A,B
 	- U0 1D np.array
 
@@ -132,21 +191,21 @@ def Vec_to_Field(domain,A,B,U0):
 def Integrate_Field(domain,F):
 
 		"""
-		Performs the Volume integral of a given field F as 
+		Performs the Volume integral of a given field F as
 
 		KE(t) = 1/V int_v F(x,z) dV, where F = u^2 + w^2 & dV = dx*dz
 
 		where KE is Kinetic Enegry
 		"""
 		# Dedalus Libraries
-		from dedalus.extras import flow_tools 
+		from dedalus.extras import flow_tools
 		import dedalus.public as de
 
 		# 1) Multiply by the integration weights r*dr*d_phi*dz for cylindrical domain
 		flow_red = flow_tools.GlobalArrayReducer(MPI.COMM_WORLD);
 		INT_ENERGY = de.operators.integrate( F ,'x','z');
 		SUM = INT_ENERGY.evaluate();
-		
+
 		# Divide by volume size
 		VOL = 1./domain.hypervolume;
 
@@ -160,24 +219,35 @@ def Inner_Prod_Cnts(x,y,domain,rand_arg=None):
 	# i.e. <,> = (1/V)int_v x*y dV
 	# To do this we transform back to fields and integrate using a consistent routine
 
-	dA = new_ncc(domain); 
+	dA = new_ncc(domain);
 	dB = new_ncc(domain);
 	Vec_to_Field(domain,dA,dB, x);
 
-	du = new_ncc(domain); 
+	du = new_ncc(domain);
 	dv = new_ncc(domain);
 	Vec_to_Field(domain,du,dv, y);
 
 	return Integrate_Field(domain, (dA*du) + (dB*dv) );
 
 # @ Calum add the discrete IP here
-def Inner_Prod_Discrete(X_k,some_args):
+def Inner_Prod_Discrete(x,y,domain,W):
 
-	return None;
+	dA = new_ncc(domain);
+	dB = new_ncc(domain);
+	Vec_to_Field(domain,dA,dB, x);
+
+	du = new_ncc(domain);
+	dv = new_ncc(domain);
+	Vec_to_Field(domain,du,dv, y);
+
+	inner_prod = (np.vdot(dA['g'],W*du['g']) + np.vdot(dB['g'],W*dv['g']))/domain.hypervolume
+
+	inner_prod = comm.allreduce(inner_prod,op=MPI.SUM)
+	return inner_prod;
 
 
 # Works for U_vec,Uz_vec currently
-def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02):
+def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealias_scale=3/2,W=None):
 	"""
 	Generate a domain object and initial conditions from which the optimisation can proceed
 
@@ -188,12 +258,12 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02):
 	- B_0   - initial condition amplitude buoyancy
 	- E_0	- initial condition amplitude velocity
 
-	Returns: 
+	Returns:
 	- domain object
 	- initial cond U0 , as a vector U
 	- initial cond Uz0, as a vector dU/dz
 	"""
-	
+
 	import dedalus.public as de
 
 	# Set to info level rather than the debug default
@@ -209,15 +279,19 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02):
 
 	# Part 1) Generate domain
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	dealias_scale = 3/2;
+	# dealias_scale = 3/2;
 	x_basis = de.Fourier(  'x', Nx, interval=X_domain, dealias=dealias_scale); # x
 	#z_basis = de.Chebyshev('z', Nz, interval=Z_domain, dealias=dealias_scale); # z
-	
-	zb1     = de.Chebyshev('z1', Nz, interval=(-1, 0.) )
-	zb2     = de.Chebyshev('z2', Nz, interval=(0., 1.) )
-	z_basis = de.Compound('z', (zb1,zb2), dealias=3/2)
 
-	domain  = de.Domain([x_basis, z_basis], grid_dtype=np.float64);
+	if(Adjoint_type=="Discrete"):
+		y_basis     = de.Chebyshev('z', Nz, interval=(-1, 1) )
+		domain  = de.Domain([x_basis, y_basis], grid_dtype=np.complex128);
+	else:
+		zb1     = de.Chebyshev('z1', Nz, interval=(-1, 0.) )
+		zb2     = de.Chebyshev('z2', Nz, interval=(0., 1.) )
+		z_basis = de.Compound('z', (zb1,zb2), dealias=dealias_scale)
+
+		domain  = de.Domain([x_basis, z_basis], grid_dtype=np.float64);
 
 	# Part 2) Generate initial condition U0 = {u, w}
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -227,36 +301,57 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02):
 	slices = domain.dist.grid_layout.slices(scales=domain.dealias)
 	rand = np.random.RandomState(seed=42)
 	noise = rand.standard_normal(gshape)[slices]; #Slicing globally generated noise here!!
-	
-	z = domain.grid(1,scales=3/2);
-	x = domain.grid(0,scales=3/2);
+
+	z = domain.grid(1,scales=domain.dealias);
+	x = domain.grid(0,scales=domain.dealias);
 	z_bot = domain.bases[1].interval[0];
 	z_top = domain.bases[1].interval[1];
 	ψ['g'] = noise; #( (z - z_bot)*(z - z_top) )*(np.sin(x)**2);#*noise; # Could scale this ??? #noise*
-	
+
+	if(Adjoint_type=="Discrete"):
+		filter_field(ψ)
 	U0  = Field_to_Vec(domain,ψ,ψ);
 	'''
 	filter_field(ψ)   # Filter the noise, modify this for less noise
-	u = domain.new_field(name='u'); uz = domain.new_field(name='uz'); 
-	w = domain.new_field(name='w'); wz = domain.new_field(name='wz'); 
+	u = domain.new_field(name='u'); uz = domain.new_field(name='uz');
+	w = domain.new_field(name='w'); wz = domain.new_field(name='wz');
 
-	ψ.differentiate('z',out=u); u.differentiate('z',out=uz); 
+	ψ.differentiate('z',out=u); u.differentiate('z',out=uz);
 	ψ.differentiate('x',out=w); w.differentiate('z',out=wz);
-	u['g']  *= -1; 
+	u['g']  *= -1;
 
 	U0  = Field_to_Vec(domain,u,w);
 	'''
 
 	# Create vector
-	U0 = FWD_Solve_IVP_Prep(U0,domain); 
+	U0 = FWD_Solve_IVP_Prep(U0,domain);
+	if Adjoint_type == "Discrete":
+		x = domain.grid(0, scales=1)
+		y = domain.grid(1, scales=1)
+		NxL = x.shape[0]
+		NyL = y.shape[1]
+		def weightMatrixDisc():
+			W = np.zeros((NxL,NyL))
+			# Mult by dy
+			for i in range(NyL):
+				if(i==0):
+					W[:,i] = y[0,i+1]-y[0,i]
+				else:
+					W[:,i] = y[0,i]-y[0,i-1]
+			dx = 4*np.pi/Nx
+			return W*dx
 
-	SUM = Inner_Prod(U0,U0,domain);
+		W = weightMatrixDisc()
+		M = np.sqrt(W)
+		SUM = Inner_Prod(U0,U0,domain,W);
+	else:
+		SUM = Inner_Prod(U0,U0,domain);
 	logger.info('Pre-scale (1/V)<U,U> = %e'%SUM);
-	
+
 
 	U0  = np.sqrt(E_0/SUM)*U0;
 
-	logger.info('Created a vector (U,Uz) \n\n');	
+	logger.info('Created a vector (U,Uz) \n\n');
 	return domain, U0;
 
 def GEN_BUFFER(Nx,Nz, domain, N_SUB_ITERS):
@@ -271,16 +366,16 @@ def GEN_BUFFER(Nx,Nz, domain, N_SUB_ITERS):
 	# The buffer created is a Python dictionary - X_FWD_DICT = {'b_x(x,t)','b_y(x,t)','b_z(x,t)'}
 	# Chosen so as to allow pass by reference & thus avoids copying
 	# All arrays to which these "keys" map must differ as we are otherwise mapping to the same memory!!
-	
+
 	Returns:
 	Memory Buffer - Type Dict { 'Key':Value } where Value is 4D np.array
 
 	"""
-	
+
 	################################################################################################################
 	# B) Build memory buffer
 	################################################################################################################
-		
+
 	# -Total  = (0.5 complex to real)*Npts*Npts*Npts*(3 fields)*(64 bits)*N_SUB_ITERS*(1.25e-10)/MPI.COMM_WORLD.Get_size()
 	# -float64 = 64bits # Data-type used # -1 bit = 1.25e-10 GB
 	Total  = ( 0.5*(Nx*Nz)*64*N_SUB_ITERS*(1.25e-10) )/float( MPI.COMM_WORLD.Get_size() )
@@ -302,7 +397,7 @@ def GEN_BUFFER(Nx,Nz, domain, N_SUB_ITERS):
 ##########################################################################
 
 def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non_Linear"):
-	
+
 	"""
 	Driver program for RBC, which builds the forward solver object with options:
 
@@ -322,7 +417,7 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 	root = logging.root
 	for h in root.handlers:
 		#h.setLevel("WARNING");
-		h.setLevel("INFO"); 
+		h.setLevel("INFO");
 		#h.setLevel("DEBUG")
 	logger = logging.getLogger(__name__)
 
@@ -361,11 +456,11 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 		problem.add_equation("dt(u) - (1./Re)*(dx(dx(u)) + dz(uz)) - dx(p) + U*dx(u) + w*Uz = -(u*dx(u) + w*uz)")
 		problem.add_equation("dt(w) - (1./Re)*(dx(dx(w)) + dz(wz)) - dz(p) + U*dx(w) + b*Ri = -(u*dx(w) + w*wz)")
 
-	problem.add_equation("dx(u) + wz = 0")	
+	problem.add_equation("dx(u) + wz = 0")
 	problem.add_equation("bz - dz(b) = 0")
 	problem.add_equation("uz - dz(u) = 0")
 	problem.add_equation("wz - dz(w) = 0")
-	
+
 	# No-Flux
 	problem.add_bc("left(bz)  = 0");
 	problem.add_bc("right(bz) = 0");
@@ -390,7 +485,7 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 	return solver;
 
 def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.5, N_ITERS=100., dt=1e-04, Prandtl=1., δ  = 0.025):
-	
+
 	"""
 	Integrates the initial conditions to satisfy bcs,
 
@@ -398,7 +493,7 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.5, N_ITERS=100., 
 	-initial condition Bx0 & derivative d/dz(Bx0)
 	- domain object
 	- default parameters Re,Ri,Pr,dt,N_ITERS
-	
+
 	Returns:
 		field objects b,d/dz(b)
 
@@ -418,10 +513,10 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.5, N_ITERS=100., 
 	#######################################################
 	# initialize the problem
 	#######################################################
-	IVP_FWD = FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl, Sim_Type = "Linear"); 
+	IVP_FWD = FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl, Sim_Type = "Linear");
 
-	p = IVP_FWD.state['p']; 
-	b = IVP_FWD.state['b'];	bz = IVP_FWD.state['bz'];	
+	p = IVP_FWD.state['p'];
+	b = IVP_FWD.state['b'];	bz = IVP_FWD.state['bz'];
 	u = IVP_FWD.state['u']; uz = IVP_FWD.state['uz'];
 	w = IVP_FWD.state['w']; wz = IVP_FWD.state['wz'];
 	for f in [p, b,u,w, bz,uz,wz]:
@@ -435,7 +530,7 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.5, N_ITERS=100., 
 	#Vec_to_Field(domain,uz,wz,Uz0);
 
 	from scipy.special import erf
-	z       = domain.grid(1,scales=3/2);
+	z       = domain.grid(1,scales=domain.dealias);
 	b['g']  = -(1./2.)*erf(z/δ);
 	bz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));
 
@@ -447,9 +542,9 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.5, N_ITERS=100., 
 	IVP_FWD.stop_iteration = N_ITERS+1; # Total Foward Iters + 1, to grab last point
 
 	IVP_FWD.sim_tim   = IVP_FWD.initial_sim_time = 0.
-	IVP_FWD.iteration = IVP_FWD.initial_iteration = 0	
+	IVP_FWD.iteration = IVP_FWD.initial_iteration = 0
 
-	#######################################################	
+	#######################################################
 	logger.info("\n\n --> Timestepping to prepare IC's for FWD_Solve ");
 	#######################################################
 
@@ -475,7 +570,7 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.5, N_ITERS=100., 
 	return Field_to_Vec(domain,u ,w );
 
 def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1e-04, α = 0, ß = 0,filename=None, Prandtl=1., δ  = 0.025):
-	
+
 	"""
 	Integrates the initial conditions FWD N_ITERS using RBC code
 
@@ -489,7 +584,7 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 
 	Returns:
 		objective function J(Bx0)
-	
+
 	- Writes the following to disk:
 	1) FILE Scalar-data (every 10 iters): Kinetic Enegry, buoyancy etc
 
@@ -507,17 +602,17 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 		h.setLevel("INFO");
 		#h.setLevel("DEBUG")
 	logger = logging.getLogger(__name__)
-	
+
 	#######################################################
 	# initialize the problem
 	#######################################################
-	IVP_FWD = FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl); 
+	IVP_FWD = FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl);
 
-	p = IVP_FWD.state['p']; 
-	b = IVP_FWD.state['b'];	bz = IVP_FWD.state['bz'];	
+	p = IVP_FWD.state['p'];
+	b = IVP_FWD.state['b'];	bz = IVP_FWD.state['bz'];
 	u = IVP_FWD.state['u']; uz = IVP_FWD.state['uz'];
 	w = IVP_FWD.state['w']; wz = IVP_FWD.state['wz'];
-	
+
 	for f in [p, b,u,w, bz,uz,wz]:
 		f.set_scales(domain.dealias, keep_data=False)
 		f['g'] = 0.
@@ -532,37 +627,37 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 		IVP_FWD.load_state(filename,index=0)
 
 	from scipy.special import erf
-	z       = domain.grid(1,scales=3/2);
+	z       = domain.grid(1,scales=domain.dealias);
 	b['g']  = -(1./2.)*erf(z/δ);
 	bz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));
-		
+
 	#######################################################
 	# evolution parameters
 	######################################################
 	IVP_FWD.stop_iteration = N_ITERS+1; # Total Foward Iters + 1, to grab last point
 
 	IVP_FWD.sim_tim   = IVP_FWD.initial_sim_time = 0.
-	IVP_FWD.iteration = IVP_FWD.initial_iteration = 0	
+	IVP_FWD.iteration = IVP_FWD.initial_iteration = 0
 
 	#######################################################
 	# analysis tasks
 	#######################################################
 	analysis_CPT = IVP_FWD.evaluator.add_file_handler('CheckPoints', iter=N_ITERS/10, mode='overwrite');
-	analysis_CPT.add_system(IVP_FWD.state, layout='g', scales=3/2); 
+	analysis_CPT.add_system(IVP_FWD.state, layout='g', scales=3/2);
 
-	analysis_CPT.add_task("Omega"							, layout='g', name="vorticity",scales=3/2); 
-	analysis_CPT.add_task("inv_Vol*integ( u**2 + w**2, 'z')", layout='c', name="kx Kinetic  energy"); 
-	analysis_CPT.add_task("inv_Vol*integ( b**2		 , 'z')", layout='c', name="kx Buoyancy energy"); 
+	analysis_CPT.add_task("Omega"							, layout='g', name="vorticity",scales=3/2);
+	analysis_CPT.add_task("inv_Vol*integ( u**2 + w**2, 'z')", layout='c', name="kx Kinetic  energy");
+	analysis_CPT.add_task("inv_Vol*integ( b**2		 , 'z')", layout='c', name="kx Buoyancy energy");
 
-	analysis_CPT.add_task("inv_Vol*integ( u**2 + w**2, 'x')", layout='c', name="Tz Kinetic  energy"); 
-	analysis_CPT.add_task("inv_Vol*integ( b**2		 , 'x')", layout='c', name="Tz Buoyancy energy"); 
+	analysis_CPT.add_task("inv_Vol*integ( u**2 + w**2, 'x')", layout='c', name="Tz Kinetic  energy");
+	analysis_CPT.add_task("inv_Vol*integ( b**2		 , 'x')", layout='c', name="Tz Buoyancy energy");
 
 
 	analysis1 	= IVP_FWD.evaluator.add_file_handler("scalar_data", iter=20, mode='overwrite');
 	analysis1.add_task("inv_Vol*integ( u**2 + w**2 )", name="Kinetic  energy")
 	analysis1.add_task("inv_Vol*integ( b**2 	   )", name="Buoyancy energy")
 
-	#######################################################	
+	#######################################################
 	logger.info("\n\n --> Timestepping FWD_Solve ");
 	#######################################################
 
@@ -570,7 +665,7 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 	if α == 0:
 		flow = flow_tools.GlobalFlowProperty(IVP_FWD, cadence=1);
 	else:
-		flow = flow_tools.GlobalFlowProperty(IVP_FWD, cadence=N_PRINTS);	
+		flow = flow_tools.GlobalFlowProperty(IVP_FWD, cadence=N_PRINTS);
 	flow.add_property("inv_Vol*integ( u**2 + w**2 )", name='Kinetic' );
 	flow.add_property("inv_Vol*integ( b**2 	      )", name='buoyancy');
 
@@ -583,7 +678,7 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 		X_FWD_DICT['u_fwd' ][:,:,snapshot_index] = u[ 'c'];
 		X_FWD_DICT['w_fwd' ][:,:,snapshot_index] = w[ 'c'];
 		X_FWD_DICT['b_fwd' ][:,:,snapshot_index] = b[ 'c'];
-		snapshot_index+=1;	
+		snapshot_index+=1;
 
 		IVP_FWD.step(dt);
 		if IVP_FWD.iteration % N_PRINTS == 0:
@@ -592,32 +687,32 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 			logger.info('Kinetic  (1/V)<U,U> = %e'%flow.volume_average('Kinetic') );
 			logger.info('Buoynacy (1/V)<b,b> = %e'%flow.volume_average('buoyancy'));
 
-		# 3) Evaluate Cost_function using flow tools, 
+		# 3) Evaluate Cost_function using flow tools,
 		# flow tools value is that of ( IVP_FWD.iteration-1 )
 		IVP_iter = IVP_FWD.iteration-1;
-		if (IVP_iter >= 0) and (IVP_iter <= N_ITERS) and (α == 0): # J = int_t <B,B> dt 
+		if (IVP_iter >= 0) and (IVP_iter <= N_ITERS) and (α == 0): # J = int_t <B,B> dt
 			J_TRAP +=    dt*flow.volume_average('Kinetic');
 
-	# final statistics		
+	# final statistics
 	#######################################################
 	post.merge_process_files("CheckPoints", cleanup=True, comm=MPI.COMM_WORLD);
 	post.merge_process_files("scalar_data", cleanup=True, comm=MPI.COMM_WORLD);
 	logger.info("\n\n--> Complete <--\n")
 
-	
+
 	if   α == 1:
 
 		rho = domain.new_field();
 		rho['c'] = X_FWD_DICT['b_fwd'][:,:,-1];
 		if   ß == 1:
 
-			#||∇^(−β) ρ(x,T) ||^2 
+			#||∇^(−β) ρ(x,T) ||^2
 			J_obj =  (1./2.)*Norm_and_Inverse_Second_Derivative(rho,domain)[0];
 
 		elif ß == 0:
 
-			#|| ρ(x,T) ||^2 
-			J_obj =  (1./2.)*Integrate_Field(domain,rho**2);	
+			#|| ρ(x,T) ||^2
+			J_obj =  (1./2.)*Integrate_Field(domain,rho**2);
 
 	elif α == 0:
 
@@ -625,24 +720,232 @@ def FWD_Solve_Cnts( U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=
 		J_obj = -(1./(2.*T))*J_TRAP; # Add a (-1) to maximise this
 
 	logger.info('J(U) = %e'%J_obj);
-	
+
 	return J_obj;
 
 # @ Calum add the discrete forward here - if neccessary ?
-def FWD_Solve_Discrete(X_k,some_args):
+def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M,   dt=1e-04, α = 0, ß = 0,filename=None, Prandtl=1., δ  = 0.025):
 
-	return None;
+	# Set to info level rather than the debug default
+	root = logging.root
+	for h in root.handlers:
+		#h.setLevel("WARNING");
+		h.setLevel("INFO"); #h.setLevel("DEBUG")
+	logger = logging.getLogger(__name__)
+
+
+	Re = Reynolds
+	Pe = Reynolds*Prandtl
+	Ri = Richardson
+
+	ReInv = 1./Re
+
+	problem = de.LBVP(domain, variables=['u','v','rho','p','uy','vy','rhoy'])
+	problem.parameters['dt'] = dt
+	problem.parameters['ReInv'] = 1./Re
+	problem.parameters['Ri'] = Ri
+	problem.parameters['PeInv'] = 1./Pe
+
+	problem.add_equation("u/dt   - ReInv*(dx(dx(u)) + dz(uy)) + dx(p) = 0")
+	problem.add_equation("v/dt   - ReInv*(dx(dx(v)) + dz(vy)) + dz(p) + Ri*rho  = 0")
+	problem.add_equation("rho/dt - PeInv*(dx(dx(rho)) + dz(rhoy)) = 0")
+	problem.add_equation("dx(u) + vy = 0")
+	problem.add_equation("uy   - dz(u)   = 0");
+	problem.add_equation("vy   - dz(v)   = 0");
+	problem.add_equation("rhoy - dz(rho)   = 0");
+
+	problem.add_bc("left(u) = 0");
+	problem.add_bc("left(v) = 0");
+
+	problem.add_bc("right(u) = 0");
+	problem.add_bc("right(v) = 0",condition="(nx != 0)")
+	problem.add_equation("integ(p) = 0",condition="(nx == 0)");
+
+	problem.add_bc("left(rhoy) = 0");
+	problem.add_bc("right(rhoy) = 0");
+
+	solver = problem.build_solver()
+	############### Build the adjoint matrices ###############
+	solver.pencil_matsolvers_transposed = {}
+	for p in solver.pencils:
+	    solver.pencil_matsolvers_transposed[p] = solver.matsolver(np.conj(p.L_exp).T, solver)
+	##########################################################
+
+	u   = solver.state['u']
+	v   =  solver.state['v']
+	rho = solver.state['rho']
+	uy = solver.state['uy']
+	vy = solver.state['vy']
+	rhoy = solver.state['rhoy']
+
+	##########################################################
+
+	problemMN = de.LBVP(domain, variables=['rho_inv','rho_inv_y'])
+	problemMN.add_equation("dx(dx(rho_inv))+dz(rho_inv_y)=0")
+	problemMN.add_equation("rho_inv_y - dz(rho_inv)=0")
+	problemMN.add_bc("left(rho_inv) = 0");
+	problemMN.add_bc("right(rho_inv) = 0");
+
+	solverMN = problemMN.build_solver()
+	############### Build the adjoint matrices ###############
+	solverMN.pencil_matsolvers_transposed = {}
+	for p in solverMN.pencils:
+	    solverMN.pencil_matsolvers_transposed[p] = solverMN.matsolver(np.conj(p.L_exp).T, solverMN)
+	##########################################################
+	MN1   = field.Field(domain, name='MN1')
+	MN2   = field.Field(domain, name='MN2')
+	MN3   = field.Field(domain, name='MN3')
+	MN4   = field.Field(domain, name='MN4')
+	fields = [MN1,MN2,MN3,MN4]
+	MN_rhs = system.FieldSystem(fields)
+
+	MN1adj   = field.Field(domain, name='MN1adj')
+	MN2adj   = field.Field(domain, name='MN2adj')
+
+	fields = [MN1adj,MN2adj]
+	MNadj_rhs = system.FieldSystem(fields)
+
+	MN1L   = field.Field(domain, name='MN1L')
+	MN2L   = field.Field(domain, name='MN2L')
+	MN3L   = field.Field(domain, name='MN3L')
+	MN4L   = field.Field(domain, name='MN4L')
+	fields = [MN1L,MN2L,MN3L,MN4L]
+	MNadj_lhs = system.FieldSystem(fields)
+
+	rho_inv   = solverMN.state['rho_inv']
+	################################################################################
+
+	rhsU   = field.Field(domain, name='rhsU')
+	rhsV   = field.Field(domain, name='rhsV')
+	rhsRho = field.Field(domain, name='rhsRho')
+	rhsD4  = field.Field(domain, name='rhsD4')
+	rhsD5  = field.Field(domain, name='rhsD5')
+	rhsD6  = field.Field(domain, name='rhsD6')
+	rhsD7  = field.Field(domain, name='rhsD7')
+	rhsD8  = field.Field(domain, name='rhsD8')
+	rhsD9  = field.Field(domain, name='rhsD9')
+	rhsD10  = field.Field(domain, name='rhsD10')
+	rhsD11  = field.Field(domain, name='rhsD11')
+	rhsD12  = field.Field(domain, name='rhsD12')
+	rhsD13  = field.Field(domain, name='rhsD13')
+	rhsD14  = field.Field(domain, name='rhsD14')
+	fields = [rhsU,rhsV,rhsRho,rhsD4,rhsD5,rhsD6,rhsD7,rhsD8,rhsD9,rhsD10,rhsD11,rhsD12,rhsD13,rhsD14]
+	equ_rhs = system.FieldSystem(fields)
+
+	x = domain.grid(0)
+	y = domain.grid(1)
+
+	uBase = field.Field(domain, name='uBase')
+	uBase['g'] = 1-y**2
+
+	uyBase = field.Field(domain, name='uyBase')
+	uBase.differentiate(1, out=uyBase)
+
+	rhoBase = field.Field(domain, name='rhoBase')
+	from scipy import special
+	rhoBase['g'] = -0.5*special.erf(y/δ)
+
+	rhoyBase = field.Field(domain, name='rhoyBase')
+	rhoBase.differentiate(1, out=rhoyBase)
+
+	NxCL = u['c'].shape[0]
+	NyCL = u['c'].shape[1]
+
+	elements0 = domain.elements(0)
+	elements1 = domain.elements(1)
+
+	DA = np.zeros((NxCL,NyCL))
+
+	Nx0 = 2*Nx//3
+	Ny0 = 2*Nz//3
+	for i in range(NxCL):
+		for j in range(NyCL):
+			if(elements0[i,0] < Nx0//2 and elements1[0,j] < Ny0):
+				DA[i,j] = 1
+
+	def NLterm(u,ux,uy,v,vx,vy,rho,rhox,rhoy):
+		NLu   = -transformInverse(u)*transformInverse(ux)   - transformInverse(v)*transformInverse(uy) + 2*ReInv
+		NLv   = -transformInverse(u)*transformInverse(vx)   - transformInverse(v)*transformInverse(vy)
+		NLrho = -transformInverse(u)*transformInverse(rhox) - transformInverse(v)*transformInverse(rhoy)
+		return DA*transform(NLu),DA*transform(NLv),DA*transform(NLrho)
+
+	def derivativeX(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] *= elements0[i]*1j
+		return vec
+
+	Vec_to_Field(domain,u ,v ,U0[0]);
+	# vecU = vec.reshape((2,NxL,NyL))[0,:,:]
+	# vecV = vec.reshape((2,NxL,NyL))[1,:,:]
+
+	u['c'] += uBase['c']
+	# states = []
+	# u['c'] = uBase['c'] + transform(vecU)
+	# v['c'] = transform(vecV)
+	rho['c'] = rhoBase['c']
+	u.differentiate(1, out=uy)
+	v.differentiate(1, out=vy)
+	rhoy['c'] = rhoyBase['c']
+
+	snapshot_index = 0
+
+	for i in range(N_ITERS):
+		ux   = derivativeX(u['c'].copy())
+		vx   = derivativeX(v['c'].copy())
+		rhox = derivativeX(rho['c'].copy())
+
+		X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c'].copy()
+		X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c'].copy()
+		X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho['c'].copy()
+		snapshot_index+=1;
+
+		NLu,NLv,NLrho = NLterm(u['c'],ux,uy['c'],v['c'],vx,vy['c'],rho['c'],rhox,rhoy['c'])
+		rhsU['c'] = solver.state['u']['c']/dt + NLu
+		rhsV['c'] = solver.state['v']['c']/dt + NLv
+		rhsRho['c'] = solver.state['rho']['c']/dt + NLrho
+		######################## Solve the LBVP ########################
+		equ_rhs.gather()
+		for p in solver.pencils:
+			b = p.pre_left @ equ_rhs.get_pencil(p)
+			x = solver.pencil_matsolvers[p].solve(b)
+			if p.pre_right is not None:
+				x = p.pre_right @ x
+			solver.state.set_pencil(p, x)
+			solver.state.scatter()
+		################################################################
+
+
+	######################## Solve the Mix Norm LBVP ########################
+	MN1['c'] = rho['c']
+	MN_rhs.gather()
+	for p in solverMN.pencils:
+		b = p.pre_left @ MN_rhs.get_pencil(p)
+		x = solverMN.pencil_matsolvers[p].solve(b)
+		if p.pre_right is not None:
+			x = p.pre_right @ x
+		solverMN.state.set_pencil(p, x)
+		solverMN.state.scatter()
+		################################################################
+
+	X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c'].copy()
+	X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c'].copy()
+	X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho_inv['c'].copy()
+	# states.append(transformInverse(rho_inv['c']).real)
+	# states.append(transformInverse(rho['c']))
+	cost = (1./2)*np.linalg.norm(M*rho_inv['g'])**2/domain.hypervolume
+	cost = comm.allreduce(cost,op=MPI.SUM)
+	return -cost;
 ##########################################################################
 # ~~~~~ ADJ Solvers  ~~~~~~~~~~~~~
 ##########################################################################
 
-def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1e-04, α = 0, ß = 0, Prandtl=1., δ  = 0.025, Sim_Type = "Non_Linear"):	
-	
+def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1e-04, α = 0, ß = 0, Prandtl=1., δ  = 0.025, Sim_Type = "Non_Linear"):
+
 	"""
 	Driver program for Rayleigh Benard code, which builds the adjoint solver object with options:
 
 	Inputs:
-	-domain (dedalus object) 
+	-domain (dedalus object)
 	-flow paramaters Rayleigh, Prandtl number (float)
 	-dt (float)
 	-N_ITERS,N_SUB_ITERS(int)
@@ -697,20 +1000,20 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 		problem.add_equation("dt(b_adj) - (1./Pe)*(dx(dx(b_adj)) + dz(bz_adj))             - U*dx(b_adj) + Ri*w_adj  =  								 (uf*dx(b_adj) + wf*bz_adj)   				   ");
 		problem.add_equation("dt(u_adj) - (1./Re)*(dx(dx(u_adj)) + dz(uz_adj)) - dx(p_adj) - U*dx(u_adj) 		     = -(u_adj*dx(uf) + w_adj*dx(wf) ) + (uf*dx(u_adj) + wf*uz_adj) - b_adj*dx(bf) - uf");
 		problem.add_equation("dt(w_adj) - (1./Re)*(dx(dx(w_adj)) + dz(wz_adj)) - dz(p_adj) - U*dx(w_adj) + u_adj*Uz  = -(u_adj*dz(uf) + w_adj*dz(wf) ) + (uf*dx(w_adj) + wf*wz_adj) - b_adj*dz(bf) - wf");
-	
+
 	elif (α == 1):
-	
+
 		problem.add_equation("dt(b_adj) - (1./Pe)*(dx(dx(b_adj)) + dz(bz_adj))             - U*dx(b_adj) + Ri*w_adj  =  								 (uf*dx(b_adj) + wf*bz_adj)   			  ");
 		problem.add_equation("dt(u_adj) - (1./Re)*(dx(dx(u_adj)) + dz(uz_adj)) - dx(p_adj) - U*dx(u_adj)             = -(u_adj*dx(uf) + w_adj*dx(wf) ) + (uf*dx(u_adj) + wf*uz_adj) - b_adj*dx(bf)");
 		problem.add_equation("dt(w_adj) - (1./Re)*(dx(dx(w_adj)) + dz(wz_adj)) - dz(p_adj) - U*dx(w_adj) + u_adj*Uz  = -(u_adj*dz(uf) + w_adj*dz(wf) ) + (uf*dx(w_adj) + wf*wz_adj) - b_adj*dz(bf)");
-	
 
 
-	problem.add_equation("dx(u_adj) + wz_adj = 0")	
+
+	problem.add_equation("dx(u_adj) + wz_adj = 0")
 	problem.add_equation("bz_adj - dz(b_adj) = 0")
 	problem.add_equation("uz_adj - dz(u_adj) = 0")
 	problem.add_equation("wz_adj - dz(w_adj) = 0")
-	
+
 	# No-Flux
 	problem.add_bc("left( bz_adj) = 0");
 	problem.add_bc("right(bz_adj) = 0");
@@ -727,11 +1030,11 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 	IVP_ADJ = problem.build_solver(ts);
 	logger.info('Solver built')
 
-	p_adj = IVP_ADJ.state['p_adj']; 
-	b_adj = IVP_ADJ.state['b_adj']; bz_adj = IVP_ADJ.state['bz_adj'];	
+	p_adj = IVP_ADJ.state['p_adj'];
+	b_adj = IVP_ADJ.state['b_adj']; bz_adj = IVP_ADJ.state['bz_adj'];
 	u_adj = IVP_ADJ.state['u_adj']; uz_adj = IVP_ADJ.state['uz_adj'];
 	w_adj = IVP_ADJ.state['w_adj']; wz_adj = IVP_ADJ.state['wz_adj'];
-	
+
 	for f in [p_adj, b_adj,u_adj,w_adj, bz_adj,uz_adj,wz_adj]:
 		f.set_scales(domain.dealias, keep_data=False)
 		f['g'] = 0.
@@ -739,17 +1042,17 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 	#######################################################
 	# set initial conditions
 	#######################################################
-	
+
 	if (α == 1):
-		
+
 		rho = domain.new_field();
 		rho['c'] = X_FWD_DICT['b_fwd'][:,:,-1];
-		
+
 		if   (ß == 1):
 			b_adj['c'] = (-1.)*Norm_and_Inverse_Second_Derivative(rho,domain)[1]['c'];
 		elif (ß == 0):
 			b_adj['c'] = rho['c'];
-		
+
 	#######################################################
 	# evolution parameters
 	######################################################
@@ -758,11 +1061,11 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 
 	IVP_ADJ.sim_tim   = IVP_ADJ.initial_sim_time  = 0.
 	IVP_ADJ.iteration = IVP_ADJ.initial_iteration = 0.
-	
-	#######################################################	
+
+	#######################################################
 	logger.info("\n\n --> Timestepping ADJ_Solve ");
 	#######################################################
-	
+
 	#from dedalus.extras import flow_tools
 	#N_PRINTS = N_SUB_ITERS//2;
 	#flow = flow_tools.GlobalFlowProperty(IVP_ADJ, cadence=1);
@@ -770,7 +1073,7 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 	#flow.add_property("inv_Vol*integ( b†**2 	      )", name='J(B)'   );
 
 	for f in [uf,wf,bf]:
-		f.set_scales(domain.dealias, keep_data=False);	#keep_data = False -> clears data out of the fields, 
+		f.set_scales(domain.dealias, keep_data=False);	#keep_data = False -> clears data out of the fields,
 
 	snapshot_index = -1; # Continuous
 	while IVP_ADJ.ok:
@@ -793,14 +1096,282 @@ def ADJ_Solve_Cnts(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,   dt=1
 		#h.setLevel("WARNING");
 		h.setLevel("INFO");
 
-	# Return the gradient δL_δu0 	
+	# Return the gradient δL_δu0
 	return [ Field_to_Vec(domain,u_adj ,w_adj) ];
 
 
 # @ Calum add the discrete forward here
-def ADJ_Solve_Discrete(X_k,some_args):
+def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,  dt=1e-04, α = 0, ß = 0, Prandtl=1., δ  = 0.025, Sim_Type = "Non_Linear"):
 
-	return None;
+	# Set to info level rather than the debug default
+	root = logging.root
+	for h in root.handlers:
+		#h.setLevel("WARNING");
+		h.setLevel("INFO"); #h.setLevel("DEBUG")
+	logger = logging.getLogger(__name__)
+
+	Re = Reynolds
+	Pe = Reynolds*Prandtl
+	Ri = Richardson
+
+	ReInv = 1./Re
+
+	problem = de.LBVP(domain, variables=['u','v','rho','p','uy','vy','rhoy'])
+	problem.parameters['dt'] = dt
+	problem.parameters['ReInv'] = 1./Re
+	problem.parameters['Ri'] = Ri
+	problem.parameters['PeInv'] = 1./Pe
+
+	problem.add_equation("u/dt   - ReInv*(dx(dx(u)) + dz(uy)) + dx(p) = 0")
+	problem.add_equation("v/dt   - ReInv*(dx(dx(v)) + dz(vy)) + dz(p) + Ri*rho  = 0")
+	problem.add_equation("rho/dt - PeInv*(dx(dx(rho)) + dz(rhoy)) = 0")
+	problem.add_equation("dx(u) + vy = 0")
+	problem.add_equation("uy   - dz(u)   = 0");
+	problem.add_equation("vy   - dz(v)   = 0");
+	problem.add_equation("rhoy - dz(rho)   = 0");
+
+	problem.add_bc("left(u) = 0");
+	problem.add_bc("left(v) = 0");
+
+	problem.add_bc("right(u) = 0");
+	problem.add_bc("right(v) = 0",condition="(nx != 0)")
+	problem.add_equation("integ(p) = 0",condition="(nx == 0)");
+
+	problem.add_bc("left(rhoy) = 0");
+	problem.add_bc("right(rhoy) = 0");
+
+	solver = problem.build_solver()
+	############### Build the adjoint matrices ###############
+	solver.pencil_matsolvers_transposed = {}
+	for p in solver.pencils:
+	    solver.pencil_matsolvers_transposed[p] = solver.matsolver(np.conj(p.L_exp).T, solver)
+	##########################################################
+
+	u   = solver.state['u']
+	v   =  solver.state['v']
+	rho = solver.state['rho']
+	uy = solver.state['uy']
+	vy = solver.state['vy']
+	rhoy = solver.state['rhoy']
+
+	##########################################################
+
+	problemMN = de.LBVP(domain, variables=['rho_inv','rho_inv_y'])
+	problemMN.add_equation("dx(dx(rho_inv))+dz(rho_inv_y)=0")
+	problemMN.add_equation("rho_inv_y - dz(rho_inv)=0")
+	problemMN.add_bc("left(rho_inv) = 0");
+	problemMN.add_bc("right(rho_inv) = 0");
+
+	solverMN = problemMN.build_solver()
+	############### Build the adjoint matrices ###############
+	solverMN.pencil_matsolvers_transposed = {}
+	for p in solverMN.pencils:
+	    solverMN.pencil_matsolvers_transposed[p] = solverMN.matsolver(np.conj(p.L_exp).T, solverMN)
+	##########################################################
+	MN1   = field.Field(domain, name='MN1')
+	MN2   = field.Field(domain, name='MN2')
+	MN3   = field.Field(domain, name='MN3')
+	MN4   = field.Field(domain, name='MN4')
+	fields = [MN1,MN2,MN3,MN4]
+	MN_rhs = system.FieldSystem(fields)
+
+	MN1adj   = field.Field(domain, name='MN1adj')
+	MN2adj   = field.Field(domain, name='MN2adj')
+
+	fields = [MN1adj,MN2adj]
+	MNadj_rhs = system.FieldSystem(fields)
+
+	MN1L   = field.Field(domain, name='MN1L')
+	MN2L   = field.Field(domain, name='MN2L')
+	MN3L   = field.Field(domain, name='MN3L')
+	MN4L   = field.Field(domain, name='MN4L')
+	fields = [MN1L,MN2L,MN3L,MN4L]
+	MNadj_lhs = system.FieldSystem(fields)
+
+	rho_inv   = solverMN.state['rho_inv']
+	################################################################################
+
+	uadj   = field.Field(domain, name='uadj')
+	uyadj  = field.Field(domain, name='uyadj')
+	vadj   = field.Field(domain, name='vadj')
+	vyadj  = field.Field(domain, name='vyadj')
+	padj   = field.Field(domain, name='padj')
+	rhoadj   = field.Field(domain, name='rhoadj')
+	rhoyadj  = field.Field(domain, name='rhoyadj')
+	fields = [uadj,vadj,rhoadj,padj,uyadj,vyadj,rhoyadj]
+	state_adj = system.FieldSystem(fields)
+
+	rhsUA  = field.Field(domain, name='rhsUA')
+	rhsVA  = field.Field(domain, name='rhsVA')
+	rhsRhoA  = field.Field(domain, name='rhsRhoA')
+	rhsPA  = field.Field(domain, name='rhsPA')
+	rhsUyA  = field.Field(domain, name='rhsUyA')
+	rhsVyA  = field.Field(domain, name='rhsVyA')
+	rhsRhoyA  = field.Field(domain, name='rhsRhoyA')
+	rhsA8  = field.Field(domain, name='rhsA8')
+	rhsA9  = field.Field(domain, name='rhsA9')
+	rhsA10  = field.Field(domain, name='rhsA10')
+	rhsA11  = field.Field(domain, name='rhsA11')
+	rhsA12  = field.Field(domain, name='rhsA12')
+	rhsA13  = field.Field(domain, name='rhsA13')
+	rhsA14  = field.Field(domain, name='rhsA14')
+	fields = [rhsUA,rhsVA,rhsRhoA,rhsPA,rhsUyA,rhsVyA,rhsRhoyA,rhsA8,rhsA9,rhsA10,rhsA11,rhsA12,rhsA13,rhsA14  ]
+	equ_adj = system.FieldSystem(fields)
+
+	elements0 = domain.elements(0)
+	elements1 = domain.elements(1)
+
+	def NLtermAdj(vec1adj,vec2adj,vec3adj,statess):
+		vec1adj = transformAdjoint(DA*vec1adj)
+		vec2adj = transformAdjoint(DA*vec2adj)
+		vec3adj = transformAdjoint(DA*vec3adj)
+		adju  = transformInverseAdjoint(-statess[1]*vec1adj - statess[4]*vec2adj - statess[7]*vec3adj)
+		adjux = transformInverseAdjoint(-statess[0]*vec1adj)
+		adjuy = transformInverseAdjoint(-statess[3]*vec1adj)
+		adjv  = transformInverseAdjoint(-statess[2]*vec1adj - statess[5]*vec2adj - statess[8]*vec3adj)
+		adjvx = transformInverseAdjoint(-statess[0]*vec2adj)
+		adjvy = transformInverseAdjoint(-statess[3]*vec2adj)
+		adjrho = transformInverseAdjoint(0*vec2adj)
+		adjrhox = transformInverseAdjoint(-statess[0]*vec3adj)
+		adjrhoy = transformInverseAdjoint(-statess[3]*vec3adj)
+		return adju,adjux,adjuy,adjv,adjvx,adjvy,adjrho,adjrhox,adjrhoy
+
+	def adjointDerivativeX(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] *= -elements0[i]*1j
+		return vec
+
+	def diffMat():
+		Dy = np.zeros((Nz,Nz))
+		for i in range(Nz):
+			for j in range(Nz):
+				if(i<j):
+					Dy[i,j] = 2*j*((j-i) % 2)
+		Dy[0,:] /= 2
+		return Dy
+	Dy = diffMat()
+
+	NxCL = uadj['c'].shape[0]
+	NyCL = uadj['c'].shape[1]
+	Nx0 = 2*Nx//3
+	Ny0 = 2*Nz//3
+	DA = np.zeros((NxCL,NyCL))
+	for i in range(NxCL):
+	    for j in range(NyCL):
+	        if(elements0[i,0] < Nx0//2 and elements1[0,j] < Ny0):
+	            DA[i,j] = 1
+
+
+	def derivativeX(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] *= elements0[i]*1j
+		return vec
+
+	def derivativeY(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] = Dy@vec[i,:]
+		return vec
+
+	def derivativeYAdjoint(vec):
+		for i in range(vec.shape[0]):
+			vec[i,:] = Dy.T@vec[i,:]
+		return vec
+
+	snapshot_index = -1
+
+	vec2 = M*M*transformInverse(X_FWD_DICT['b_fwd'][:,:,snapshot_index])/domain.hypervolume
+	snapshot_index -= 1
+
+	# print(vec2)
+	MN1adj['c'] = transformInverseAdjoint(vec2)
+	MNadj_rhs.gather()
+	# Solve system for each pencil, updating state
+	for p in solverMN.pencils:
+		if p.pre_right is not None:
+			vec = MNadj_rhs.get_pencil(p)
+			b = np.conj(p.pre_right).T @ vec
+		else:
+			b = state_adj.get_pencil(p)
+
+		x = solverMN.pencil_matsolvers_transposed[p].solve(b)
+		x = np.conj(p.pre_left).T @ x
+		MNadj_lhs.set_pencil(p, x)
+		MNadj_lhs.scatter()
+		#########################################################################
+
+
+	uadj['c'] = 0
+	uyadj['c'] = 0
+	vadj['c'] = 0
+	vyadj['c'] = 0
+	padj['c'] = 0
+	rhoadj['c'] = MN1L['c']
+	rhoyadj['c'] = 0
+	for i in range(N_ITERS):
+		######################## Solve the adjoint LBVP ########################
+		state_adj.gather()
+		# Solve system for each pencil, updating state
+		for p in solver.pencils:
+			if p.pre_right is not None:
+				vec = state_adj.get_pencil(p)
+				b = np.conj(p.pre_right).T @ vec
+			else:
+				b = state_adj.get_pencil(p)
+
+			x = solver.pencil_matsolvers_transposed[p].solve(b)
+			x = np.conj(p.pre_left).T @ x
+			equ_adj.set_pencil(p, x)
+			equ_adj.scatter()
+		#########################################################################
+		uadj['c'] = rhsUA['c'].copy()
+		vadj['c'] = rhsVA['c'].copy()
+		rhoadj['c'] = rhsRhoA['c'].copy()
+		uyadj['c'] = rhsUyA['c'].copy()
+		vyadj['c'] = rhsVyA['c'].copy()
+		rhoyadj['c'] = rhsRhoyA['c'].copy()
+
+		uDir = X_FWD_DICT['u_fwd'][:,:,snapshot_index]
+		vDir = X_FWD_DICT['w_fwd'][:,:,snapshot_index]
+		rhoDir = X_FWD_DICT['b_fwd'][:,:,snapshot_index]
+
+		uxDir = transformInverse(derivativeX(uDir.copy()))
+		uyDir = transformInverse(derivativeY(uDir.copy()))
+
+		vxDir = transformInverse(derivativeX(vDir.copy()))
+		vyDir = transformInverse(derivativeY(vDir.copy()))
+
+		rhoxDir = transformInverse(derivativeX(rhoDir.copy()))
+		rhoyDir = transformInverse(derivativeY(rhoDir.copy()))
+
+		uDir = transformInverse(uDir.copy())
+		vDir = transformInverse(vDir.copy())
+
+		states = [uDir,uxDir,uyDir,vDir,vxDir,vyDir,rhoDir,rhoxDir,rhoyDir]
+
+		snapshot_index -= 1
+
+		adju,adjux,adjuy,adjv,adjvx,adjvy,adjrho,adjrhox,adjrhoy = NLtermAdj(uadj['c'].copy(),vadj['c'].copy(),rhoadj['c'].copy(),states)
+		uadj['c']    = uadj['c']/dt   + adju     + adjointDerivativeX(adjux)
+		vadj['c']    = vadj['c']/dt   + adjv     + adjointDerivativeX(adjvx)
+		rhoadj['c']  = rhoadj['c']/dt + adjrho   + adjointDerivativeX(adjrhox)
+		uyadj['c']   = adjuy
+		vyadj['c']   = adjvy
+		rhoyadj['c'] = adjrhoy
+
+	uadj['c'] += derivativeYAdjoint(uyadj['c'])
+	vadj['c'] += derivativeYAdjoint(vyadj['c'])
+
+	W = M**2
+	uadj['g'] = -domain.hypervolume*transformAdjoint(uadj['c'])/W
+	vadj['g'] = -domain.hypervolume*transformAdjoint(vadj['c'])/W
+	# grad = np.array([transformAdjoint(uadj['c']),transformAdjoint(vadj['c'])])
+
+	# Set to info level rather than the debug default
+	for h in root.handlers:
+		#h.setLevel("WARNING");
+		h.setLevel("INFO");
+
+	return [ Field_to_Vec(domain,uadj ,vadj) ];
 
 #########################################################################
 # ~~~~~ Negative derivatives Solvers  ~~~~~~~~~~~~~
@@ -808,9 +1379,9 @@ def ADJ_Solve_Discrete(X_k,some_args):
 
 def Norm_and_Inverse_Second_Derivative(rho,domain):
 	"""
-	Build a BVP that takes the final density field 
-	and returns its inverse first derivative or 
-	inverse laplacian. We enforce only that the 
+	Build a BVP that takes the final density field
+	and returns its inverse first derivative or
+	inverse laplacian. We enforce only that the
 	solution must have zero-mean
 	"""
 
@@ -832,7 +1403,7 @@ def Norm_and_Inverse_Second_Derivative(rho,domain):
 
 	# Differentiate solution
 	Ψ = solver.state['Ψ']
-	
+
 	fx = domain.new_field(name='fx'); Ψ.differentiate('x',out=fx);
 	fz = domain.new_field(name='fz'); Ψ.differentiate('z',out=fz);
 
@@ -846,7 +1417,7 @@ def File_Manips(k):
 	and removes unwanted data
 
 	Each iteration of the DAL loop code is stored under index k
-	"""		
+	"""
 
 	import shutil
 
@@ -856,10 +1427,10 @@ def File_Manips(k):
 	# B) Contains all field data
 	shutil.copyfile('CheckPoints/CheckPoints_s1.h5','CheckPoints_iter_%i.h5'%k);
 
-	return None;		
+	return None;
 
 
-Adjoint_type = "Continuous";
+Adjoint_type = "Discrete";
 
 if Adjoint_type == "Discrete":
 
@@ -879,32 +1450,63 @@ if __name__ == "__main__":
 
 	Re = 500.;  Ri = 0.05;
 	dt = 5e-04;
-	Nx = 256; 
+	Nx = 256;
 	Nz = 48; # Using a compound basis in z to resolve the erf(z) so the resolution will be double this
-	T_opt = 10.; E_0 = 0.02
+	T_opt = 10; E_0 = 0.02
+
 	N_ITERS = int(T_opt/dt);
-	
-	
+
+	if(Adjoint_type=="Discrete"):
+		Nz *= 2
+		Nx = 3*Nx//2
+		Nz = 3*Nz//2
+		dealias_scale = 1
+	else:
+		dealias_scale = 3/2
 	α = 0; ß = 0; # (A) time-averaged-kinetic-energy maximisation (α = 0)
 	#α = 1; ß = 1; # (B) mix-norm minimisation (α = 1, β = 1)
 
-	domain, Ux0  = Generate_IC(Nx,Nz);
+	domain, Ux0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
+
+	x = domain.grid(0, scales=1)
+	y = domain.grid(1, scales=1)
+	NxL = x.shape[0]
+	NyL = y.shape[1]
+	def weightMatrixDisc():
+		W = np.zeros((NxL,NyL))
+		# Mult by dy
+		for i in range(NyL):
+			if(i==0):
+				W[:,i] = y[0,i+1]-y[0,i]
+			else:
+				W[:,i] = y[0,i]-y[0,i-1]
+		dx = 4*np.pi/Nx
+		return W*dx
+
+	W = weightMatrixDisc()
+	M = np.sqrt(W)
+
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
-	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß];
-	args_IP = [domain,None];
+
+	if(Adjoint_type=="Discrete"):
+		args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,M,dt, α,ß];
+		args_IP = [domain,W];
+	else:
+		args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß];
+		args_IP = [domain,None];
 
 	#sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
-	
+
 	# Test the gradient
-	#from TestGrad import Adjoint_Gradient_Test
-	#_, dUx0  = Generate_IC(Nx,Nz);
-	#Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
+	from TestGrad import Adjoint_Gradient_Test
+	_, dUx0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
+	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1)
 	#sys.exit()
+	#
+	# # Run the optimisation
+	# from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
+	# RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=File_Manips)
+	#
+	# plot_optimisation(RESIDUAL,FUNCT);
 
-	# Run the optimisation
-	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=File_Manips)
-
-	plot_optimisation(RESIDUAL,FUNCT);
-	
 	####
