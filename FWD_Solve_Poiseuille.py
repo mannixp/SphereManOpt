@@ -308,6 +308,8 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealia
 	z_top = domain.bases[1].interval[1];
 	ψ['g'] = noise; #( (z - z_bot)*(z - z_top) )*(np.sin(x)**2);#*noise; # Could scale this ??? #noise*
 
+	if(Adjoint_type=="Discrete"):
+		filter_field(ψ)
 	U0  = Field_to_Vec(domain,ψ,ψ);
 	'''
 	filter_field(ψ)   # Filter the noise, modify this for less noise
@@ -930,7 +932,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M, 
 	X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho_inv['c'].copy()
 	# states.append(transformInverse(rho_inv['c']).real)
 	# states.append(transformInverse(rho['c']))
-	cost = np.linalg.norm(M*rho_inv['g'])**2
+	cost = (1./2)*np.linalg.norm(M*rho_inv['g'])**2/domain.hypervolume
 	cost = comm.allreduce(cost,op=MPI.SUM)
 	return -cost;
 ##########################################################################
@@ -1277,7 +1279,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,
 
 	snapshot_index = -1
 
-	vec2 = 2*M*M*transformInverse(X_FWD_DICT['b_fwd'][:,:,snapshot_index])
+	vec2 = M*M*transformInverse(X_FWD_DICT['b_fwd'][:,:,snapshot_index])/domain.hypervolume
 	snapshot_index -= 1
 
 	# print(vec2)
@@ -1450,7 +1452,7 @@ if __name__ == "__main__":
 	dt = 5e-04;
 	Nx = 256;
 	Nz = 48; # Using a compound basis in z to resolve the erf(z) so the resolution will be double this
-	T_opt = 10; E_0 = 0.02
+	T_opt = 0.1; E_0 = 0.02
 
 	N_ITERS = int(T_opt/dt);
 
@@ -1498,7 +1500,7 @@ if __name__ == "__main__":
 	# Test the gradient
 	from TestGrad import Adjoint_Gradient_Test
 	_, dUx0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
-	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
+	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1)
 	#sys.exit()
 	#
 	# # Run the optimisation

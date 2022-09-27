@@ -2,14 +2,14 @@ import time
 import numpy as np
 import logging
 
-def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP):
+def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon = 1e-04):
 
 
 	"""
-	Preform the Taylor remainder test (see Farrell P. Cotter C. SIAM JSC 2014), that is 
+	Preform the Taylor remainder test (see Farrell P. Cotter C. SIAM JSC 2014), that is
 
 	|J(Bx0 + h*dBx0) - J(Bx0)| -> 0 at O(h),
-	
+
 	|J(Bx0 + h*dBx0) - J(Bx0) - h*<dBx0,dJ/dB>| -> 0 at O(h^2),
 
 	by repeating evaluations for h,h/2,h/4,... to determine convergence order.
@@ -45,17 +45,17 @@ def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
 	start_time = time.time()
 	if isinstance(X0, list):
 		J_ref 	   = FWD_Solve(X0  ,	*args_f);
-	else:	
+	else:
 		J_ref 	   = FWD_Solve([X0],	*args_f);
 	end_time   = time.time()
 	print('Total time fwd: %f' %(end_time-start_time))
-	
+
 
 	logger.info("dJ Adjoint_Solve running .... \n")
 	start_time = time.time()
 	if isinstance(X0, list):
 		dJdX 	   = ADJ_Solve(X0  ,	*args_f);
-	else:	
+	else:
 		dJdX 	   = ADJ_Solve([X0],	*args_f);
 	end_time   = time.time()
 	print('Total time adjoint: %f' %(end_time-start_time))
@@ -66,28 +66,27 @@ def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
 		for f,g in zip(dX0,dJdX):
 			W_ADJ += Inner_Prod(f,g,*args_IP);
 	else:
-		W_ADJ = Inner_Prod(dX0,dJdX[0],*args_IP)		
+		W_ADJ = Inner_Prod(dX0,dJdX[0],*args_IP)
 
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	# (2) Loop for (A) W_fd = <dL/dB,dB >_fd, (B) W_adj = <dL/dB,dB >_adj  
+	# (2) Loop for (A) W_fd = <dL/dB,dB >_fd, (B) W_adj = <dL/dB,dB >_adj
 	# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	epsilon = 1e-04;
 	logger.info('epsilon = %e'%epsilon)
 
 	N_test = 5;
 	EPSILON     = np.zeros(N_test);
-	TEST_SUM_R  = np.zeros(N_test); 
+	TEST_SUM_R  = np.zeros(N_test);
 	TEST_SUM_R2 = np.zeros(N_test);
 
-			
+
 	# Include a for loop to compute a range of epsilon
 	for test in range(N_test):
 
 		TAY_R  = 0.0; # Compute the Taylor remainder -- checks if we've a gradient
 		TAY_R2 = 0.0; # Compute the 2^nd Taylor remainder -- checks convergence of adjoint
 		if isinstance(X0, list) and isinstance(dX0, list):
-			Pert = [f + epsilon*g  for f,g in zip(X0,dX0)];	
+			Pert = [f + epsilon*g  for f,g in zip(X0,dX0)];
 			J_fd = FWD_Solve( Pert,	*args_f);
 		else:
 			J_fd = FWD_Solve([X0 + epsilon*dX0],	*args_f);
