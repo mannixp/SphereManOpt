@@ -860,7 +860,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M, 
 	Ny0 = 2*Nz//3
 	for i in range(NxCL):
 		for j in range(NyCL):
-			if(elements0[i,0] < Nx0//2 and elements1[0,j] < Ny0):
+			if(np.abs(elements0[i,0]) < Nx0//2 and elements1[0,j] < Ny0):
 				DA[i,j] = 1
 
 	def NLterm(u,ux,uy,v,vx,vy,rho,rhox,rhoy):
@@ -927,14 +927,21 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M, 
 		solverMN.state.scatter()
 		################################################################
 
-	X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c'].copy()
-	X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c'].copy()
+	dx_rho_inv = field.Field(domain, name='dx_rho_inv')
+	rho_inv.differentiate(0, out=dx_rho_inv)
+
+	dz_rho_inv = field.Field(domain, name='dz_rho_inv')
+	rho_inv.differentiate(1, out=dz_rho_inv)
+
+	cost = (1./2)*(np.linalg.norm(M*dx_rho_inv['g'])**2 + np.linalg.norm(M*dz_rho_inv['g'])**2)/domain.hypervolume
+	X_FWD_DICT['u_fwd'][:,:,snapshot_index] = dx_rho_inv['c'].copy()
+	X_FWD_DICT['w_fwd'][:,:,snapshot_index] = dz_rho_inv['c'].copy()
 	X_FWD_DICT['b_fwd'][:,:,snapshot_index] = rho_inv['c'].copy()
 	# states.append(transformInverse(rho_inv['c']).real)
 	# states.append(transformInverse(rho['c']))
-	cost = (1./2)*np.linalg.norm(M*rho_inv['g'])**2/domain.hypervolume
+	# cost = (1./2)*np.linalg.norm(M*rho_inv['g'])**2/domain.hypervolume
 	cost = comm.allreduce(cost,op=MPI.SUM)
-	return -cost;
+	return cost;
 ##########################################################################
 # ~~~~~ ADJ Solvers  ~~~~~~~~~~~~~
 ##########################################################################
@@ -1258,7 +1265,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,
 	DA = np.zeros((NxCL,NyCL))
 	for i in range(NxCL):
 	    for j in range(NyCL):
-	        if(elements0[i,0] < Nx0//2 and elements1[0,j] < Ny0):
+	        if(np.abs(elements0[i,0]) < Nx0//2 and elements1[0,j] < Ny0):
 	            DA[i,j] = 1
 
 
@@ -1279,11 +1286,17 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,
 
 	snapshot_index = -1
 
-	vec2 = M*M*transformInverse(X_FWD_DICT['b_fwd'][:,:,snapshot_index])/domain.hypervolume
+	vecx = M*M*transformInverse(X_FWD_DICT['u_fwd'][:,:,snapshot_index])/domain.hypervolume
+	vecy = M*M*transformInverse(X_FWD_DICT['w_fwd'][:,:,snapshot_index])/domain.hypervolume
 	snapshot_index -= 1
 
-	# print(vec2)
-	MN1adj['c'] = transformInverseAdjoint(vec2)
+	vecxhat = transformInverseAdjoint(vecx)
+	vecyhat = transformInverseAdjoint(vecy)
+
+	vecxhatdx = adjointDerivativeX(vecxhat.copy())
+	vecyhatdy = derivativeYAdjoint(vecyhat.copy())
+
+	MN1adj['c'] = vecxhatdx + vecyhatdy
 	MNadj_rhs.gather()
 	# Solve system for each pencil, updating state
 	for p in solverMN.pencils:
@@ -1362,8 +1375,8 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,
 	vadj['c'] += derivativeYAdjoint(vyadj['c'])
 
 	W = M**2
-	uadj['g'] = -domain.hypervolume*transformAdjoint(uadj['c'])/W
-	vadj['g'] = -domain.hypervolume*transformAdjoint(vadj['c'])/W
+	uadj['g'] = domain.hypervolume*transformAdjoint(uadj['c'])/W
+	vadj['g'] = domain.hypervolume*transformAdjoint(vadj['c'])/W
 	# grad = np.array([transformAdjoint(uadj['c']),transformAdjoint(vadj['c'])])
 
 	# Set to info level rather than the debug default
@@ -1503,10 +1516,10 @@ if __name__ == "__main__":
 	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1)
 	#sys.exit()
 	#
-	# # Run the optimisation
-	# from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	# RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=File_Manips)
+	# Run the optimisation
+	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
+	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=File_Manips)
 	#
-	# plot_optimisation(RESIDUAL,FUNCT);
+	plot_optimisation(RESIDUAL,FUNCT);
 
 	####
