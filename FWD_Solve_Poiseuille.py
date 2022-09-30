@@ -855,12 +855,12 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,M, 
 	elements1 = domain.elements(1)
 
 	DA = np.zeros((NxCL,NyCL))
-
+	Lx = abs(domain.bases[0].interval[0] - domain.bases[0].interval[1]);
 	Nx0 = 2*Nx//3
 	Ny0 = 2*Nz//3
 	for i in range(NxCL):
 		for j in range(NyCL):
-			if(np.abs(elements0[i,0]) < Nx0//2 and elements1[0,j] < Ny0):
+			if(np.abs(elements0[i,0]) < (2.*np.pi/Lx)*(Nx0//2) and elements1[0,j] < Ny0):
 				DA[i,j] = 1
 
 	def NLterm(u,ux,uy,v,vx,vy,rho,rhox,rhoy):
@@ -1263,10 +1263,12 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT, M,
 	Nx0 = 2*Nx//3
 	Ny0 = 2*Nz//3
 	DA = np.zeros((NxCL,NyCL))
+
+	Lx = abs(domain.bases[0].interval[0] - domain.bases[0].interval[1]);
 	for i in range(NxCL):
-	    for j in range(NyCL):
-	        if(np.abs(elements0[i,0]) < Nx0//2 and elements1[0,j] < Ny0):
-	            DA[i,j] = 1
+		for j in range(NyCL):
+			if(np.abs(elements0[i,0]) <  (2.*np.pi/Lx)*(Nx0//2) and elements1[0,j] < Ny0):
+				DA[i,j] = 1
 
 
 	def derivativeX(vec):
@@ -1517,9 +1519,9 @@ if __name__ == "__main__":
 	#sys.exit()
 	#
 	# Run the optimisation
-	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=File_Manips)
-	#
-	plot_optimisation(RESIDUAL,FUNCT);
+	# from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
+	# RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 1., LS = 'LS_wolfe', CG = True, callback=File_Manips)
+	# #
+	# plot_optimisation(RESIDUAL,FUNCT);
 
 	####
