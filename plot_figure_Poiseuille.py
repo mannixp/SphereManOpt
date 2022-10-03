@@ -40,9 +40,12 @@ def Plot_scalar_data(file_names,LEN,CAD,Normalised_B,Logscale_B):
 		time = file['scales/sim_time'][:];
 		x = time - time[0]*np.ones(len(time)); # Modify time so that it's zero'd
 		x = x[index:index_end]
-		
-		KE = file['tasks/Kinetic  energy'][index:index_end,0,0];
-		BE = file['tasks/Buoyancy energy'][index:index_end,0,0];
+		try:
+			KE = file['tasks/Kinetic  energy'][index:index_end,0,0];
+			BE = file['tasks/Buoyancy energy'][index:index_end,0,0];
+		except:
+			KE = file['tasks/Kinetic  energy'][index:index_end];
+			BE = file['tasks/Buoyancy energy'][index:index_end];	
 
 		a[0].semilogy(x,KE,label=r'$<u^2 + w^2>_{i=%i}$'%i);#,fontsize=25);
 		a[1].semilogy(x,BE,label=r'$<b^2>_{i=%i}$'%i);#,fontsize=25);
@@ -92,11 +95,12 @@ def Plot_U_and_B(file_names,times,LEN,CAD,Just_B):
 	for k in range(0,LEN,CAD):
 
 		file = h5py.File(file_names[k],"r")
-		print(file['scales/'].keys()); print(file['tasks/'].keys()) #useful commands
+		#print(file['scales/'].keys()); print(file['tasks/'].keys()) #useful commands
 
 		#(time,x,z)
 		x = file['scales/x/1.5']; z = file['scales/z/1.5'];
-		u = file['tasks/u']; w = file['tasks/w']; b = file['tasks/b'];
+		#u = file['tasks/u']; w = file['tasks/w']; 
+		b = file['tasks/b'];
 		Ω = file['tasks/vorticity']; 
 		
 		for i in range(len(times)):
@@ -281,7 +285,7 @@ if __name__ == "__main__":
 	##########################################################################	
 	
 	Scalar_data_filenames = glob.glob('./scalar_data_iter_*.h5');
-	#Scalar_data_filenames = glob.glob('./RES_*/scalar_data/scalar_data_s1.h5');
+	#Scalar_data_filenames = ['scalar_data_s1.h5']
 	#Scalar_data_filenames = ['scalar_data/scalar_data_s1.h5']
 	
 	print(Scalar_data_filenames)
@@ -292,18 +296,19 @@ if __name__ == "__main__":
 
 	# Useful for examing the energetics of the magnetic fields different components
 	Plot_scalar_data(Scalar_data_filenames,LEN,Plot_Cadence,Normalised_B,Logscale)
-	
+	#sys.exit()
 	##########################################################################
 	# Full Checkpoints filenames
 	##########################################################################
 
 	Checkpoints_filenames = glob.glob('./CheckPoints_iter_*.h5');
-	#Checkpoints_filenames = glob.glob('./Test_*/CheckPoints/CheckPoints_s1.h5');
+	#Checkpoints_filenames = ['CheckPoints_s1.h5']
 	#Checkpoints_filenames = ['CheckPoints/CheckPoints_s1.h5']
 
 	LEN = len(Checkpoints_filenames);
 	Plot_Cadence = 1;
 	times = [0,-1]; # First and Last Checkpoints
+	#times = [0,1,2,3,4,5,6,7,8,9]; # First and Last Checkpoints
 	Just_B = False; # If True only plots B-field
 
 	Plot_U_and_B(Checkpoints_filenames,times,LEN,Plot_Cadence,Just_B)
