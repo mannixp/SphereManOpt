@@ -316,7 +316,7 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealia
 	x_basis = de.Fourier(  'x', Nx, interval=X_domain, dealias=dealias_scale); # x
 
 	if(Adjoint_type=="Discrete"):
-		y_basis     = de.Chebyshev('z', Nz, interval=(-1, 1) )
+		y_basis     = de.Chebyshev('z', Nz, interval=(-1, 1), dealias=dealias_scale )
 		domain  = de.Domain([x_basis, y_basis], grid_dtype=np.complex128);
 	else:
 		#zb1     = de.Chebyshev('z1', Nz//2, interval=(-1, 0.) )
@@ -342,8 +342,8 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealia
 	ψ['g'] = noise; #( (z - z_bot)*(z - z_top) )*(np.sin(x)**2);#*noise; # Could scale this ??? #noise*
 	filter_field(ψ) # Filter the noise, modify this for less noise
 
-	U0  = Field_to_Vec(domain,ψ,ψ);
-	'''
+	#U0  = Field_to_Vec(domain,ψ,ψ);
+	#'''
 	u = domain.new_field(name='u'); uz = domain.new_field(name='uz');
 	w = domain.new_field(name='w'); wz = domain.new_field(name='wz');
 
@@ -352,7 +352,7 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealia
 	u['g']  *= -1;
 
 	U0  = Field_to_Vec(domain,u,w);
-	'''
+	#'''
 
 	# Create vector
 	U0 = FWD_Solve_IVP_Prep(U0,domain);
@@ -364,7 +364,7 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealia
 	logger.info('Created a vector (U,Uz) \n\n');
 	return domain, U0;
 
-def GEN_BUFFER(Nx,Nz, domain, N_SUB_ITERS):
+def GEN_BUFFER(Nx,Nz, domain, N_ITERS):
 
 	"""
 	Given the resolution and number of N_SUB_ITERS
@@ -388,13 +388,13 @@ def GEN_BUFFER(Nx,Nz, domain, N_SUB_ITERS):
 
 	# -Total  = (0.5 complex to real)*Npts*Npts*Npts*(3 fields)*(64 bits)*N_SUB_ITERS*(1.25e-10)/MPI.COMM_WORLD.Get_size()
 	# -float64 = 64bits # Data-type used # -1 bit = 1.25e-10 GB
-	Total  = ( 0.5*(Nx*Nz)*64*N_SUB_ITERS*(1.25e-10) )/float( MPI.COMM_WORLD.Get_size() )
+	Total  = ( 0.5*(Nx*Nz)*64*N_ITERS*(1.25e-10) )/float( MPI.COMM_WORLD.Get_size() )
 	if MPI.COMM_WORLD.rank == 0:
 		print("Total memory =%f GB, and memory/core = %f GB"%(MPI.COMM_WORLD.Get_size()*Total,Total));
 
 	gshape  = tuple( domain.dist.coeff_layout.global_shape(scales=1) );
 	lcshape = tuple( domain.dist.coeff_layout.local_shape(scales=1)  );
-	SNAPS_SHAPE = (lcshape[0],lcshape[1],N_SUB_ITERS+1);
+	SNAPS_SHAPE = (lcshape[0],lcshape[1],N_ITERS+1);
 
 	u_SNAPS  = np.zeros(SNAPS_SHAPE,dtype=complex);
 	w_SNAPS  = np.zeros(SNAPS_SHAPE,dtype=complex);
@@ -639,12 +639,8 @@ def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	from scipy.special import erf
 	z       = domain.grid(1,scales=domain.dealias);
-	b['g']  = -(z + (0.9*z)**3 + (0.9*z)**5 + (0.9*z)**7);  #-(1./2.)*erf(z/δ);
-	#bz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));
-
-	#kk = 5.
-	#b['g']  = -(1./2.)*np.tanh(kk*z)
-	#bz['g'] = -kk/(np.cosh(2*kk*z) + 1.)
+	b['g']  = -(1./2.)*erf(z/δ); #-(z + (0.9*z)**3 + (0.9*z)**5 + (0.9*z)**7);  #
+	bz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));
 
 
 	#######################################################
@@ -697,11 +693,11 @@ def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		snapshot_index+=1;
 
 		IVP_FWD.step(dt);
-		if IVP_FWD.iteration % N_PRINTS == 0:
-			logger.info('Iterations: %i' %IVP_FWD.iteration)
-			logger.info('Sim time:   %f' %IVP_FWD.sim_time )
-			logger.info('Kinetic  (1/V)<U,U> = %e'%flow.volume_average('Kinetic') );
-			logger.info('Buoynacy (1/V)<b,b> = %e'%flow.volume_average('buoyancy'));
+		#if IVP_FWD.iteration % N_PRINTS == 0:
+		logger.info('Iterations: %i' %IVP_FWD.iteration)
+		logger.info('Sim time:   %f' %IVP_FWD.sim_time )
+		logger.info('Kinetic  (1/V)<U,U> = %e'%flow.volume_average('Kinetic') );
+		logger.info('Buoynacy (1/V)<b,b> = %e'%flow.volume_average('buoyancy'));
 
 		# 3) Evaluate Cost_function using flow tools,
 		# flow tools value is that of ( IVP_FWD.iteration-1 )
@@ -781,9 +777,9 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	Ri = Richardson
 
 	problem = de.LBVP(domain, variables=['u','v','ρ',	'uz','vz','ρz',		'p'])
-	problem.parameters['dt'] = dt
+	problem.parameters['dt']    = dt
 	problem.parameters['ReInv'] = 1./Re
-	problem.parameters['Ri'] = Ri
+	problem.parameters['Ri']    = Ri
 	problem.parameters['PeInv'] = 1./Pe
 
 	problem.add_equation("u/dt - ReInv*(dx(dx(u)) + dz(uz)) + dx(p) + (1. - z*z)*dx(u) + v*(-2.*z) = 0.")
@@ -820,7 +816,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	uz = solver.state['uz']
 	vz = solver.state['vz']
 	ρz = solver.state['ρz']
-	#p  = solver.state['p']
+	p  = solver.state['p']
 
 	rhsU   = field.Field(domain, name='rhsU')
 	rhsV   = field.Field(domain, name='rhsV')
@@ -876,36 +872,41 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	DA = np.zeros((NxCL,NzCL))
 	Lx = abs(domain.bases[0].interval[0] - domain.bases[0].interval[1]);
-	Nx0 = 2*Nx//3
-	Nz0 = 2*Nz//3
+	Nx0 = 2*Nx//3;
+	Nz0 = 2*Nz//3;
+
 	for i in range(NxCL):
 		for j in range(NzCL):
 			if(np.abs(elements0[i,0]) < (2.*np.pi/Lx)*(Nx0//2) and elements1[0,j] < Nz0):
-				DA[i,j] = 1
-
+				DA[i,j] = 1.
+	
 	# Create an evaluator for the nonlinear terms			
-	def NLterm(u,ux,uz,	v,vx,vz,	ρ,ρx,ρz):
-		NLu = -transformInverse(u)*transformInverse(ux) - transformInverse(v)*transformInverse(uz)
-		NLv = -transformInverse(u)*transformInverse(vx) - transformInverse(v)*transformInverse(vz)
-		NLρ = -transformInverse(u)*transformInverse(ρx) - transformInverse(v)*transformInverse(ρz)
+	def NLterm(u,ux,uz,	v,vx,vz,	ρx,ρz):
+		
+		u_grid = transformInverse(u);
+		v_grid = transformInverse(v);
+		
+		NLu = -u_grid*transformInverse(ux) - v_grid*transformInverse(uz)
+		NLv = -u_grid*transformInverse(vx) - v_grid*transformInverse(vz)
+		NLρ = -u_grid*transformInverse(ρx) - v_grid*transformInverse(ρz)
+		
 		return DA*transform(NLu),DA*transform(NLv),DA*transform(NLρ)
 
 	# Function for taking derivatives in Fourier space	
 	def derivativeX(vec):
-		for i in range(vec.shape[0]):
-			vec[i,:] *= elements0[i]*1j
-		return vec
+		for j in range(vec.shape[1]):
+			vec[:,j] *= elements0[:,0]*1j
+		return vec;
 
 	# Prescribe the base state and set the ICs	
 	from scipy import special
 	z = domain.grid(1)
-	ρ['g']  = -(z + (0.9*z)**3 + (0.9*z)**5 + (0.9*z)**7);  #-0.5*special.erf(z/δ)
-	#ρz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));	
-	ρ.differentiate(1, out=ρz)
+	ρ['g']  = -0.5*special.erf(z/δ);
+	ρz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));	
 
 	Vec_to_Field(domain,u ,v ,U0[0]);
-	u.differentiate(1, out=uz)
-	v.differentiate(1, out=vz)
+	u.differentiate('z', out=uz)
+	v.differentiate('z', out=vz)
 
 	#######################################################
 	# Analysis tasks
@@ -955,39 +956,42 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		X_FWD_DICT['b_fwd'][:,:,snapshot_index] = ρ['c'].copy()
 		snapshot_index+=1;
 
+		#~~~~~~~~~~~ file-handler ~~~~~~~~~~~~~~~~
+		U_vec = Field_to_Vec(domain,u,v);
+		KE    = Inner_Prod(U_vec,U_vec,domain);
 
-		#~~~~~~~~~~~
-		KE_p = (np.vdot(u['g'],W*u['g']) + np.vdot(v['g'],W*v['g']) )/domain.hypervolume
-		KE   = comm.allreduce(KE_p,op=MPI.SUM)
-		
 		DE_p = np.vdot(ρ['g'],W*ρ['g'])/domain.hypervolume
 		DE   = comm.allreduce(DE_p,op=MPI.SUM)
-
+		
 		Kinetic_energy.append( KE );
 		Density_energy.append( DE );
 		sim_time.append(i*dt);
 
 		if i == 0:
-			
 			Ω_save[0,:,:][slices] = np.real(transformInverse(vx) - uz['g']);
 			ρ_save[0,:,:][slices] = np.real(ρ['g']);
 
 			Ω_save[0,:,:]   = comm.allreduce(Ω_save[0,:,:],op=MPI.SUM)
 			ρ_save[0,:,:]   = comm.allreduce(ρ_save[0,:,:],op=MPI.SUM)
-
 		elif i == (N_ITERS-1):
-			
 			Ω_save[1,:,:][slices] = np.real(transformInverse(vx) - uz['g']);
 			ρ_save[1,:,:][slices] = np.real(ρ['g']);
 
 			Ω_save[1,:,:]   = comm.allreduce(Ω_save[1,:,:],op=MPI.SUM)
 			ρ_save[1,:,:]   = comm.allreduce(ρ_save[1,:,:],op=MPI.SUM)
-		#~~~~~~~~~~~
+		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-		NLu,NLv,NLrho = NLterm(u['c'],ux,uz['c'],	v['c'],vx,vz['c'],	ρ['c'],ρx,ρz['c'])
-		rhsU['c'] = solver.state['u']['c']/dt + NLu
-		rhsV['c'] = solver.state['v']['c']/dt + NLv
-		rhsρ['c'] = solver.state['ρ']['c']/dt + NLrho
+		# Print data
+		#if i % (N_ITERS//10) == 0:
+		logger.info('\n Iterations: %i' %i)
+		logger.info('Sim time:   %f' %float(i*dt) )
+		logger.info('Kinetic  (1/V)<U,U> = %e'%KE );
+		logger.info('Buoynacy (1/V)<b,b> = %e \n'%DE );
+
+		NLu,NLv,NLρ = NLterm(u['c'],ux,uz['c'],	v['c'],vx,vz['c'],	ρx,ρz['c'])
+		rhsU['c'] = u['c']/dt + NLu
+		rhsV['c'] = v['c']/dt + NLv
+		rhsρ['c'] = ρ['c']/dt + NLρ
 		
 		######################## Solve the LBVP ########################
 		equ_rhs.gather()
@@ -1038,6 +1042,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	X_FWD_DICT['w_fwd'][:,:,snapshot_index] = dρ_inv_dz['c'].copy()
 	X_FWD_DICT['b_fwd'][:,:,snapshot_index] =  		  ψ['c'].copy()
 	
+	# Less efficient but ensures consistent Inner Product used!!
 	dρ_inv_dX  = Field_to_Vec(domain,dρ_inv_dx,dρ_inv_dz);
 	cost       = (1./2)*Inner_Prod(dρ_inv_dX,dρ_inv_dX,domain);
 
@@ -1228,9 +1233,9 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	Ri = Richardson
 
 	problem = de.LBVP(domain, variables=['u','v','ρ','p','uz','vz','ρz'])
-	problem.parameters['dt'] = dt
+	problem.parameters['dt'] 	= dt
 	problem.parameters['ReInv'] = 1./Re
-	problem.parameters['Ri'] = Ri
+	problem.parameters['Ri'] 	= Ri
 	problem.parameters['PeInv'] = 1./Pe
 
 	problem.add_equation("u/dt - ReInv*(dx(dx(u)) + dz(uz)) + dx(p) + (1. - z*z)*dx(u) + v*(-2.*z) = 0.")
@@ -1266,7 +1271,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	uz = solver.state['uz']
 	vz = solver.state['vz']
 	ρz = solver.state['ρz']
-
+	p  = solver.state['p']
 
 	uadj   = field.Field(domain, name='uadj')
 	uzadj  = field.Field(domain, name='uzadj')
@@ -1569,8 +1574,8 @@ def File_Manips(k):
 	return None;
 
 
-Adjoint_type = "Discrete";
-#Adjoint_type = "Continuous";
+#Adjoint_type = "Discrete";
+Adjoint_type = "Continuous";
 
 if Adjoint_type == "Discrete":
 
@@ -1589,11 +1594,11 @@ if __name__ == "__main__":
 
 
 	Re = 500.;  Ri = 0.05;
-	#Nx = 256; Nz = 2*48; T_opt = 10; dt = 5e-04;
+	#Nx = 256; Nz = 128; T_opt = 10; dt = 5e-04;
 	Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
 	E_0 = 0.02
 
-	N_ITERS = int(T_opt/dt);
+	N_ITERS = 10;#int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
 		Nx = 3*Nx//2
@@ -1604,28 +1609,28 @@ if __name__ == "__main__":
 	#α = 0; ß = 0; # (A) time-averaged-kinetic-energy maximisation (α = 0)
 	α = 1; ß = 1; # (B) mix-norm minimisation (α = 1, β = 1)
 
-	domain, Ux0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
+	domain, Ux0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
 
-	Prandtl=1.; δ  = 0.125
+	Prandtl=1.; δ  = 0.25
 	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß, Prandtl,δ];
 	args_IP = [domain,None];
 
 
-	#FWD_Solve([Ux0],*args_f);
-	#sys.exit()
+	FWD_Solve([Ux0],*args_f);
+	sys.exit()
 
 	#sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 
 	# Test the gradient
-	#from TestGrad import Adjoint_Gradient_Test
-	#_, dUx0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
-	#Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
-	#sys.exit()
+	from TestGrad import Adjoint_Gradient_Test
+	_, dUx0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
+	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
+	sys.exit()
 	
 	# Run the optimisation
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 10, alpha_k = 10., LS = 'LS_armijo', CG = False, callback=File_Manips)
+	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 10., LS = 'LS_armijo', CG = False, callback=File_Manips)
 	plot_optimisation(RESIDUAL,FUNCT);
 
 	####
