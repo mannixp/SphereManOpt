@@ -35,7 +35,7 @@ def Hessian_Matrix(DIM):
 
 	return M;
 
-def Objective_Gradient(xk,M,Return_J_only = False):
+def Objective_Gradient(xk,*args_f,**kwargs_f):
 
 	"""
 	Computes the:
@@ -58,7 +58,7 @@ def Objective_Gradient(xk,M,Return_J_only = False):
 	else:	
 		return J_k, [g_k];
 
-def Objective(X,M,Return_J_only = False):
+def Objective(X,*args_f,**kwargs_f):
 
 	"""
 	Computes the:
@@ -72,13 +72,12 @@ def Objective(X,M,Return_J_only = False):
 	"""
 
 	xk = X[0];
-
 	g_k = -np.matmul(M,xk)
 	J_k = (1./2.)*np.dot(xk,g_k)
 
 	return J_k;
 
-def Gradient(X,M,Return_J_only = False):
+def Gradient(X,*args_f,**kwargs_f):
 
 	"""
 	Computes the:
@@ -96,6 +95,7 @@ def Gradient(X,M,Return_J_only = False):
 	g_k = -np.matmul(M,xk)
 	#J_k = (1./2.)*np.dot(xk,g_k)
 
+	'''
 	import math
 	theta = math.acos(np.dot(xk,g_k)/(np.linalg.norm(xk,2)*np.linalg.norm(g_k,2) ) )
 
@@ -103,10 +103,11 @@ def Gradient(X,M,Return_J_only = False):
 	print("Angle sin(theta_k) = ",np.sin(theta));
 	print("Residual  	  r_k = ",np.linalg.norm(g_k,2)*np.sin(theta));
 	print("\n");
+	'''
 
 	return [g_k];
 
-def Vector_Inner_Product(f,g,args=()):
+def Vector_Inner_Product(f,g,*args_IP):
 
 	return np.dot(f,g);
 
@@ -116,7 +117,12 @@ if __name__ == "__main__":
 	M 	= Hessian_Matrix(DIM);
 	X_0 = np.random.rand(DIM); 
 	M_0 = 1.;
-	args_f  = (M,True); args_IP = (); 
+	
+	# Positional arguments
+	args_f  = (M,True); args_IP = (); #
+	
+	# Keyword arguments
+	#kwargs_f= {"M":M,"Return_J_only":True}; kwargs_IP = {};
 
 	# 1) Calculate the solution via an EVP
 	from numpy import linalg as LA
@@ -127,9 +133,8 @@ if __name__ == "__main__":
 	v = eigenVectors[:,0]
 	print('Eig-vector = ',v,'\n');
 
-	sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
+	
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-
 
 	# 2) Calculate the solution via steepest-descent (SD)
 

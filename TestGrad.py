@@ -2,7 +2,7 @@ import time
 import numpy as np
 import logging
 
-def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon = 1e-04):
+def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f=(),args_IP=(),kwargs_f={},kwargs_IP={},epsilon = 1e-04):
 
 
 	"""
@@ -44,9 +44,9 @@ def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,
 	logger.info("JB0 FWD_Solve running .... \n")
 	start_time = time.time()
 	if isinstance(X0, list):
-		J_ref 	   = FWD_Solve(X0  ,	*args_f);
+		J_ref 	   = FWD_Solve(X0  ,	*args_f,*kwargs_f);
 	else:
-		J_ref 	   = FWD_Solve([X0],	*args_f);
+		J_ref 	   = FWD_Solve([X0],	*args_f,*kwargs_f);
 	end_time   = time.time()
 	print('Total time fwd: %f' %(end_time-start_time))
 
@@ -54,9 +54,9 @@ def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,
 	logger.info("dJ Adjoint_Solve running .... \n")
 	start_time = time.time()
 	if isinstance(X0, list):
-		dJdX 	   = ADJ_Solve(X0  ,	*args_f);
+		dJdX 	   = ADJ_Solve(X0  ,	*args_f,*kwargs_f);
 	else:
-		dJdX 	   = ADJ_Solve([X0],	*args_f);
+		dJdX 	   = ADJ_Solve([X0],	*args_f,*kwargs_f);
 	end_time   = time.time()
 	print('Total time adjoint: %f' %(end_time-start_time))
 
@@ -64,9 +64,9 @@ def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,
 	if isinstance(dX0, list):
 		W_ADJ = 0.
 		for f,g in zip(dX0,dJdX):
-			W_ADJ += Inner_Prod(f,g,*args_IP);
+			W_ADJ += Inner_Prod(f,g,*args_IP,*kwargs_IP);
 	else:
-		W_ADJ = Inner_Prod(dX0,dJdX[0],*args_IP)
+		W_ADJ = Inner_Prod(dX0,dJdX[0],*args_IP,*kwargs_IP)
 
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	# (2) Loop for (A) W_fd = <dL/dB,dB >_fd, (B) W_adj = <dL/dB,dB >_adj
@@ -87,9 +87,9 @@ def Adjoint_Gradient_Test(X0,dX0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,
 		TAY_R2 = 0.0; # Compute the 2^nd Taylor remainder -- checks convergence of adjoint
 		if isinstance(X0, list) and isinstance(dX0, list):
 			Pert = [f + epsilon*g  for f,g in zip(X0,dX0)];
-			J_fd = FWD_Solve( Pert,	*args_f);
+			J_fd = FWD_Solve( Pert,	*args_f,*kwargs_f);
 		else:
-			J_fd = FWD_Solve([X0 + epsilon*dX0],	*args_f);
+			J_fd = FWD_Solve([X0 + epsilon*dX0],	*args_f,*kwargs_f);
 
 		TAY_R  = abs(J_fd - J_ref); # Should go like O(h);
 		TAY_R2 = abs(J_fd - J_ref - epsilon*W_ADJ); # Should go like O(h^2);
