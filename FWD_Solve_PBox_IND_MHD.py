@@ -1045,37 +1045,19 @@ if __name__ == "__main__":
 	Constraints = [M_0,E_0];
 	args_IP = (domain,None);
 
-	sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
 	
 	Cost_function= "Final"
 	Adjoint_type = "Discrete";
 	args_f 		 = [domain,Rm,dt,   N_ITERS,N_SUB_ITERS, X_FWD_DICT,Cost_function, Adjoint_type];
 
-	# Save the different errors 
-	#'''
-	DAL_file = h5py.File('/Users/pmannix/Desktop/Nice_CASTOR/Discrete_Adjoint_KDyn/Test_M1T1_N24_dt5e-04_CNTS_SD_Rm1/DAL_PROGRESS.h5', 'r+')
-
-	# Problem Params
-	RESIDUAL = DAL_file['RESIDUAL'][()];
-	FUNCT    = DAL_file['FUNCT'][()]; 
-	X 	 	 = DAL_file['X_opt'][()]
-	
-	X_0 = [X[0],X[1]];
-	#'''    
-
+	  
 	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere(X_0,Constraints,FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod_3,args_f,args_IP,max_iters=10, alpha_k = 100., LS = 'LS_armijo', CG = False,callback=File_Manips)
 
 	if MPI.COMM_WORLD.rank == 0:
 		plot_optimisation(RESIDUAL,FUNCT);
 
 	'''
-	# FWD Solve
-	#J_obj = FWD_Solve_IVP_Lin(X0,*args_f);
-
-	# ADJ Solve
-	#dJdB0 = ADJ_Solve_IVP_Lin(X0,*args_f);
-	
 	from TestGrad import Adjoint_Gradient_Test
 	Noise = True;
 	XdomainX, dBx0, dUx  = Generate_IC(Npts,X_domain,M_0,Noise);
@@ -1084,3 +1066,15 @@ if __name__ == "__main__":
 	dX0 = np.concatenate((ZEROS,dUx  ));
 	Adjoint_Gradient_Test(X0,dX0,	*args)
 	'''
+
+	# Save the different errors 
+	'''
+	DAL_file = h5py.File('/Users/pmannix/Desktop/Nice_CASTOR/Discrete_Adjoint_KDyn/Test_M1T1_N24_dt5e-04_CNTS_SD_Rm1/DAL_PROGRESS.h5', 'r+')
+
+	# Problem Params
+	RESIDUAL = DAL_file['RESIDUAL'][()];
+	FUNCT    = DAL_file['FUNCT'][()]; 
+	X 	 	 = DAL_file['X_opt'][()]
+	
+	X_0 = [X[0],X[1]];
+	'''  
