@@ -79,7 +79,7 @@ def weightMatrixDisc(domain):
 	NyL = y.shape[1]
 
 	W = np.zeros((NxL,NyL))
-	
+
 	# Mult by dy
 	for i in range(NyL):
 		if(i==0):
@@ -276,7 +276,7 @@ def Inner_Prod_Discrete(x,y,domain,W=None):
 
 	inner_prod = ( np.vdot(dA['g'],W*du['g']) + np.vdot(dB['g'],W*dv['g']) );
 	inner_prod = comm.allreduce(inner_prod,op=MPI.SUM)
-	
+
 	return inner_prod/domain.hypervolume;
 
 # Works for U_vec,Uz_vec currently
@@ -742,12 +742,12 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	Integrates the initial conditions FWD N_ITERS using RBC code
 
 	Input:
-	- initial condition U0 type list U0[0] = [u,v] 
+	- initial condition U0 type list U0[0] = [u,v]
 	- domain object
 	- parameters Reynolds,Richardson (float)
 	- N_ITERS (int)
 	- X_FWD_DICT (python dictnary buffer to store values)
-	- default parameters 
+	- default parameters
 
 	Returns:
 		objective function J(U0)
@@ -802,14 +802,14 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	problem.add_bc("right(ρz) = 0");
 
 	solver = problem.build_solver()
-	
+
 	############### (1.b) Build the adjoint matrices A^H ###############
 	solver.pencil_matsolvers_transposed = {}
 	for p in solver.pencils:
 	    solver.pencil_matsolvers_transposed[p] = solver.matsolver(np.conj(p.L_exp).T, solver)
 	##########################################################
 
-	# (1.c) Allocate all Field variables = number of eqns + bcs 
+	# (1.c) Allocate all Field variables = number of eqns + bcs
 	u  = solver.state['u']
 	v  = solver.state['v']
 	ρ  = solver.state['ρ']
@@ -837,7 +837,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	################################################################################
 
-	# (2) Create the Linear boundary value problem 
+	# (2) Create the Linear boundary value problem
 	# i.e. [ P^L*∆*P^R ]*ψ = P^L*ρ
 	# 			 L      *X = F
 	# used to solve for the mix-norm.
@@ -879,30 +879,30 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		for j in range(NzCL):
 			if(np.abs(elements0[i,0]) < (2.*np.pi/Lx)*(Nx0//2) and elements1[0,j] < Nz0):
 				DA[i,j] = 1.
-	
-	# Create an evaluator for the nonlinear terms			
+
+	# Create an evaluator for the nonlinear terms
 	def NLterm(u,ux,uz,	v,vx,vz,	ρx,ρz):
-		
+
 		u_grid = transformInverse(u);
 		v_grid = transformInverse(v);
-		
+
 		NLu = -u_grid*transformInverse(ux) - v_grid*transformInverse(uz)
 		NLv = -u_grid*transformInverse(vx) - v_grid*transformInverse(vz)
 		NLρ = -u_grid*transformInverse(ρx) - v_grid*transformInverse(ρz)
-		
+
 		return DA*transform(NLu),DA*transform(NLv),DA*transform(NLρ)
 
-	# Function for taking derivatives in Fourier space	
+	# Function for taking derivatives in Fourier space
 	def derivativeX(vec):
 		for j in range(vec.shape[1]):
 			vec[:,j] *= elements0[:,0]*1j
 		return vec;
 
-	# Prescribe the base state and set the ICs	
+	# Prescribe the base state and set the ICs
 	from scipy import special
 	z = domain.grid(1)
 	ρ['g']  = -0.5*special.erf(z/δ);
-	ρz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));	
+	ρz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));
 
 	Vec_to_Field(domain,u ,v ,U0[0]);
 	u.differentiate('z', out=uz)
@@ -912,30 +912,30 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	# Analysis tasks
 	#######################################################
 	if MPI.COMM_WORLD.Get_rank() == 0:
-		
+
 		file1 		   = h5py.File('scalar_data_s1.h5', 'w');
 		scalars_tasks  = file1.create_group('tasks');
 		scalars_scales = file1.create_group('scales');
-		
+
 		file2 		   = h5py.File('CheckPoints_s1.h5', 'w');
 		CheckPt_tasks  = file2.create_group('tasks');
 		CheckPt_scales = file2.create_group('scales');
-		
+
 		x_save = CheckPt_scales.create_group('x');
 		scales = domain.remedy_scales(scales=1)
 		x_save['1.5'] = domain.bases[0].grid(scales[0]);
-		
+
 		z_save = CheckPt_scales.create_group('z');
 		scales = domain.remedy_scales(scales=1)
 		z_save['1.5'] = domain.bases[1].grid(scales[1]);
 
 	sim_time = [];
 	Kinetic_energy = [];
-	Density_energy = [];	
+	Density_energy = [];
 
 	gshape  = tuple( domain.dist.grid_layout.global_shape(scales=1) );
 	slices  = domain.dist.grid_layout.slices(scales=1)
-	
+
 	SHAPE  = (2,gshape[0],gshape[1])
 	Ω_save = np.zeros( SHAPE );
 	ρ_save = np.zeros( SHAPE );
@@ -944,9 +944,10 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	# (3) Time-step the equations forwards T = N_ITERS*dt
 	# performed by inverting a LVBP at each time-step
+	costKE = 0
 	snapshot_index = 0
 	for i in range(N_ITERS):
-		
+
 		ux = derivativeX(u['c'].copy())
 		vx = derivativeX(v['c'].copy())
 		ρx = derivativeX(ρ['c'].copy())
@@ -959,10 +960,10 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		#~~~~~~~~~~~ file-handler ~~~~~~~~~~~~~~~~
 		U_vec = Field_to_Vec(domain,u,v);
 		KE    = Inner_Prod(U_vec,U_vec,domain);
-
+		costKE += dt*KE
 		DE_p = np.vdot(ρ['g'],W*ρ['g'])/domain.hypervolume
 		DE   = comm.allreduce(DE_p,op=MPI.SUM)
-		
+
 		Kinetic_energy.append( KE );
 		Density_energy.append( DE );
 		sim_time.append(i*dt);
@@ -983,16 +984,16 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 		# Print data
 		#if i % (N_ITERS//10) == 0:
-		logger.info('\n Iterations: %i' %i)
-		logger.info('Sim time:   %f' %float(i*dt) )
-		logger.info('Kinetic  (1/V)<U,U> = %e'%KE );
-		logger.info('Buoynacy (1/V)<b,b> = %e \n'%DE );
+		# logger.info('\n Iterations: %i' %i)
+		# logger.info('Sim time:   %f' %float(i*dt) )
+		# logger.info('Kinetic  (1/V)<U,U> = %e'%KE );
+		# logger.info('Buoynacy (1/V)<b,b> = %e \n'%DE );
 
 		NLu,NLv,NLρ = NLterm(u['c'],ux,uz['c'],	v['c'],vx,vz['c'],	ρx,ρz['c'])
 		rhsU['c'] = u['c']/dt + NLu
 		rhsV['c'] = v['c']/dt + NLv
 		rhsρ['c'] = ρ['c']/dt + NLρ
-		
+
 		######################## Solve the LBVP ########################
 		equ_rhs.gather()
 		for p in solver.pencils:
@@ -1014,37 +1015,40 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 		CheckPt_tasks['vorticity']  = Ω_save;
 		CheckPt_tasks['b']  = ρ_save;
-		file2.close(); 	
+		file2.close();
 
+	if   α == 1:
+		######################## (4) Solve the Mix Norm LBVP ########################
+		ψ 		 = solverMN.state['ψ'];
+		dρ_inv_dz= solverMN.state['ψz'];
+		MN1['c'] = ρ['c'];
 
-	######################## (4) Solve the Mix Norm LBVP ########################
-	ψ 		 = solverMN.state['ψ'];
-	dρ_inv_dz= solverMN.state['ψz'];
-	MN1['c'] = ρ['c'];
+		MN_rhs.gather()
+		for p in solverMN.pencils:
+			b = p.pre_left @ MN_rhs.get_pencil(p)
+			x = solverMN.pencil_matsolvers[p].solve(b)
+			if p.pre_right is not None:
+				x = p.pre_right @ x
+			solverMN.state.set_pencil(p, x)
+			solverMN.state.scatter()
+		################################################################
 
-	MN_rhs.gather()
-	for p in solverMN.pencils:
-		b = p.pre_left @ MN_rhs.get_pencil(p)
-		x = solverMN.pencil_matsolvers[p].solve(b)
-		if p.pre_right is not None:
-			x = p.pre_right @ x
-		solverMN.state.set_pencil(p, x)
-		solverMN.state.scatter()
-	################################################################
+		# (5) Evaluate the cost function and pass the adjoint equations
+		# initial conditions into the checkpointing buffer
 
-	# (5) Evaluate the cost function and pass the adjoint equations
-	# initial conditions into the checkpointing buffer
+		dρ_inv_dx = field.Field(domain, name='dρ_inv_dx')
+		ψ.differentiate('x', out=dρ_inv_dx);
 
-	dρ_inv_dx = field.Field(domain, name='dρ_inv_dx')
-	ψ.differentiate('x', out=dρ_inv_dx);
+		X_FWD_DICT['u_fwd'][:,:,snapshot_index] = dρ_inv_dx['c'].copy()
+		X_FWD_DICT['w_fwd'][:,:,snapshot_index] = dρ_inv_dz['c'].copy()
+		X_FWD_DICT['b_fwd'][:,:,snapshot_index] =  		  ψ['c'].copy()
 
-	X_FWD_DICT['u_fwd'][:,:,snapshot_index] = dρ_inv_dx['c'].copy()
-	X_FWD_DICT['w_fwd'][:,:,snapshot_index] = dρ_inv_dz['c'].copy()
-	X_FWD_DICT['b_fwd'][:,:,snapshot_index] =  		  ψ['c'].copy()
-	
-	# Less efficient but ensures consistent Inner Product used!!
-	dρ_inv_dX  = Field_to_Vec(domain,dρ_inv_dx,dρ_inv_dz);
-	cost       = (1./2)*Inner_Prod(dρ_inv_dX,dρ_inv_dX,domain);
+		# Less efficient but ensures consistent Inner Product used!!
+		dρ_inv_dX  = Field_to_Vec(domain,dρ_inv_dx,dρ_inv_dz);
+		cost       = (1./2)*Inner_Prod(dρ_inv_dX,dρ_inv_dX,domain);
+	else:
+		cost = -1./2*costKE
+
 
 	return cost;
 
@@ -1264,7 +1268,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	    solver.pencil_matsolvers_transposed[p] = solver.matsolver(np.conj(p.L_exp).T, solver)
 	##########################################################
 
-	# (1.c) Allocate all fwd + adj Field variables = number of eqns + bcs 
+	# (1.c) Allocate all fwd + adj Field variables = number of eqns + bcs
 	u  = solver.state['u']
 	v  = solver.state['v']
 	ρ  = solver.state['ρ']
@@ -1303,7 +1307,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	##########################################################
 
 
-	# (2) Create the Linear boundary value problem 
+	# (2) Create the Linear boundary value problem
 	# i.e. [ P^L*∆*P^R ]*ψ = P^L*ρ
 	# 			 L      *X = F
 	# used to solve for the mix-norm.
@@ -1321,7 +1325,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	    solverMN.pencil_matsolvers_transposed[p] = solverMN.matsolver(np.conj(p.L_exp).T, solverMN)
 	##########################################################
 
-	# (2.c) Allocate all adj Field variables = number of eqns + bcs 
+	# (2.c) Allocate all adj Field variables = number of eqns + bcs
 	MN1adj = field.Field(domain, name='MN1adj')
 	MN2adj = field.Field(domain, name='MN2adj')
 	fields = [MN1adj,MN2adj]
@@ -1360,7 +1364,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		Dz[0,:] /= 2
 		return Dz;
 	Dz = diffMat()
-		
+
 	def adjointDerivativeX(vec):
 		for i in range(vec.shape[0]):
 			vec[i,:] *= -elements0[i]*1j
@@ -1383,7 +1387,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	# (4) Build the term which computes the action
 	# of the adjoint of the jacobian nonlinear term
-	# i.e. (∂F/∂x)^†*X^† 
+	# i.e. (∂F/∂x)^†*X^†
 	def NLtermAdj(vec1adj,vec2adj,vec3adj,statess):
 		vec1adj = transformAdjoint(DA*vec1adj)
 		vec2adj = transformAdjoint(DA*vec2adj)
@@ -1398,39 +1402,45 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		adjρx = transformInverseAdjoint(-statess[0]*vec3adj)
 		adjρz = transformInverseAdjoint(-statess[3]*vec3adj)
 		return adju,adjux,adjuz,adjv,adjvx,adjvz,adjρ,adjρx,adjρz
-	
+
 
 	# (5) Set the adjoint equation ICs/compatibility condition
 	# this requires taking account of the weight matrices,
 	# transforms & LBVP
 	snapshot_index = -1
-	
+
 	W = weightMatrixDisc(domain);
-	vecx = transformInverse(X_FWD_DICT['u_fwd'][:,:,snapshot_index])*(W/domain.hypervolume)
-	vecz = transformInverse(X_FWD_DICT['w_fwd'][:,:,snapshot_index])*(W/domain.hypervolume)
-	snapshot_index -= 1
 
-	vecxhat = transformInverseAdjoint(vecx)
-	veczhat = transformInverseAdjoint(vecz)
+	if(α==1):
+		vecx = transformInverse(X_FWD_DICT['u_fwd'][:,:,snapshot_index])*(W/domain.hypervolume)
+		vecz = transformInverse(X_FWD_DICT['w_fwd'][:,:,snapshot_index])*(W/domain.hypervolume)
+		snapshot_index -= 1
 
-	vecxhatdx = adjointDerivativeX(vecxhat.copy())
-	veczhatdz = derivativeZAdjoint(veczhat.copy())
+		vecxhat = transformInverseAdjoint(vecx)
+		veczhat = transformInverseAdjoint(vecz)
 
-	MN1adj['c'] = vecxhatdx + veczhatdz
-	MNadj_rhs.gather()
-	# Solve system for each pencil, updating state
-	for p in solverMN.pencils:
-		if p.pre_right is not None:
-			vec = MNadj_rhs.get_pencil(p)
-			b = np.conj(p.pre_right).T @ vec
-		else:
-			b = state_adj.get_pencil(p)
+		vecxhatdx = adjointDerivativeX(vecxhat.copy())
+		veczhatdz = derivativeZAdjoint(veczhat.copy())
 
-		x = solverMN.pencil_matsolvers_transposed[p].solve(b)
-		x = np.conj(p.pre_left).T @ x
-		MNadj_lhs.set_pencil(p, x)
-		MNadj_lhs.scatter()
-	#########################################################################
+		MN1adj['c'] = vecxhatdx + veczhatdz
+		MNadj_rhs.gather()
+		# Solve system for each pencil, updating state
+		for p in solverMN.pencils:
+			if p.pre_right is not None:
+				vec = MNadj_rhs.get_pencil(p)
+				b = np.conj(p.pre_right).T @ vec
+			else:
+				b = state_adj.get_pencil(p)
+
+			x = solverMN.pencil_matsolvers_transposed[p].solve(b)
+			x = np.conj(p.pre_left).T @ x
+			MNadj_lhs.set_pencil(p, x)
+			MNadj_lhs.scatter()
+		#########################################################################
+		ρadj['c']  = MN1L['c']
+	else:
+		snapshot_index -= 1
+		ρadj['c'] = 0
 
 
 	uadj['c']  = 0
@@ -1438,12 +1448,12 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	vadj['c']  = 0
 	vzadj['c'] = 0
 	padj['c']  = 0
-	ρadj['c']  = MN1L['c']
+	# ρadj['c']  = MN1L['c']
 	ρzadj['c'] = 0
 
 	# (6) Solve the adjoint equations bckwards
 	for i in range(N_ITERS):
-		
+
 		######################## Solve the adjoint LBVP ########################
 		state_adj.gather()
 		# Solve system for each pencil, updating state
@@ -1493,6 +1503,11 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		uzadj['c'] = adjuz
 		vzadj['c'] = adjvz
 		ρzadj['c'] = adjρz
+
+		if(α==0):
+			# Add adjoint forcing
+			uadj['c'] -= dt*transformInverseAdjoint(W*uDir)/domain.hypervolume
+			vadj['c'] -= dt*transformInverseAdjoint(W*vDir)/domain.hypervolume
 
 	uadj['c'] += derivativeZAdjoint(uzadj['c'])
 	vadj['c'] += derivativeZAdjoint(vzadj['c'])
@@ -1563,8 +1578,8 @@ def File_Manips(k):
 		# B) Contains all state data
 		shutil.copyfile('CheckPoints/CheckPoints_s1.h5','CheckPoints_iter_%i.h5'%k);
 
-	
-	else:	
+
+	else:
 		# A) Contains all scalar data
 		shutil.copyfile('scalar_data_s1.h5','scalar_data_iter_%i.h5'%k);
 
@@ -1574,8 +1589,8 @@ def File_Manips(k):
 	return None;
 
 
-#Adjoint_type = "Discrete";
-Adjoint_type = "Continuous";
+Adjoint_type = "Discrete";
+# Adjoint_type = "Continuous";
 
 if Adjoint_type == "Discrete":
 
@@ -1598,7 +1613,7 @@ if __name__ == "__main__":
 	Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
 	E_0 = 0.02
 
-	N_ITERS = 10;#int(T_opt/dt);
+	N_ITERS = 1000;#int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
 		Nx = 3*Nx//2
@@ -1606,8 +1621,8 @@ if __name__ == "__main__":
 		dealias_scale = 1
 	else:
 		dealias_scale = 3/2
-	#α = 0; ß = 0; # (A) time-averaged-kinetic-energy maximisation (α = 0)
-	α = 1; ß = 1; # (B) mix-norm minimisation (α = 1, β = 1)
+	α = 0; ß = 0; # (A) time-averaged-kinetic-energy maximisation (α = 0)
+	# α = 1; ß = 1; # (B) mix-norm minimisation (α = 1, β = 1)
 
 	domain, Ux0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
@@ -1617,8 +1632,8 @@ if __name__ == "__main__":
 	args_IP = [domain,None];
 
 
-	FWD_Solve([Ux0],*args_f);
-	sys.exit()
+	# FWD_Solve([Ux0],*args_f);
+	# sys.exit()
 
 	#sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 
@@ -1627,10 +1642,10 @@ if __name__ == "__main__":
 	_, dUx0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
 	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
 	sys.exit()
-	
-	# Run the optimisation
-	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 10., LS = 'LS_armijo', CG = False, callback=File_Manips)
-	plot_optimisation(RESIDUAL,FUNCT);
+
+	# # Run the optimisation
+	# from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
+	# RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 10., LS = 'LS_armijo', CG = False, callback=File_Manips)
+	# plot_optimisation(RESIDUAL,FUNCT);
 
 	####
