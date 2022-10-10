@@ -1005,18 +1005,6 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 			solver.state.scatter()
 		################################################################
 
-	# Save the files
-	if MPI.COMM_WORLD.Get_rank() == 0:
-
-		scalars_tasks['Kinetic  energy']  = Kinetic_energy
-		scalars_tasks['Buoyancy energy']  = Density_energy
-		scalars_scales['sim_time'] = sim_time
-		file1.close();
-
-		CheckPt_tasks['vorticity']  = Ω_save;
-		CheckPt_tasks['b']  = ρ_save;
-		file2.close();
-
 	if   α == 1:
 		######################## (4) Solve the Mix Norm LBVP ########################
 		ψ 		 = solverMN.state['ψ'];
@@ -1047,7 +1035,33 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		dρ_inv_dX  = Field_to_Vec(domain,dρ_inv_dx,dρ_inv_dz);
 		cost       = (1./2)*Inner_Prod(dρ_inv_dX,dρ_inv_dX,domain);
 	else:
+		# get KE from the last point
+		KE    = Inner_Prod(U_vec,U_vec,domain);
+		costKE += dt*KE
+		DE_p = np.vdot(ρ['g'],W*ρ['g'])/domain.hypervolume
+		DE   = comm.allreduce(DE_p,op=MPI.SUM)
+
+		Kinetic_energy.append( KE );
+		Density_energy.append( DE );
+		sim_time.append(N_ITERS*dt);
+
+		X_FWD_DICT['u_fwd'][:,:,snapshot_index] = u['c'].copy()
+		X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c'].copy()
+		X_FWD_DICT['b_fwd'][:,:,snapshot_index] = ρ['c'].copy()
+
 		cost = -1./2*costKE
+
+	# Save the files
+	if MPI.COMM_WORLD.Get_rank() == 0:
+
+		scalars_tasks['Kinetic  energy']  = Kinetic_energy
+		scalars_tasks['Buoyancy energy']  = Density_energy
+		scalars_scales['sim_time'] = sim_time
+		file1.close();
+
+		CheckPt_tasks['vorticity']  = Ω_save;
+		CheckPt_tasks['b']  = ρ_save;
+		file2.close();
 
 
 	return cost;
@@ -1439,16 +1453,17 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		#########################################################################
 		ρadj['c']  = MN1L['c']
 	else:
+		uDir = X_FWD_DICT['u_fwd'][:,:,snapshot_index]
+		vDir = X_FWD_DICT['w_fwd'][:,:,snapshot_index]
+		uDir = transformInverse(uDir.copy())
+		vDir = transformInverse(vDir.copy())
 		snapshot_index -= 1
 		ρadj['c'] = 0
+		uadj['c'] = -dt*transformInverseAdjoint(W*uDir)/domain.hypervolume
+		vadj['c'] = -dt*transformInverseAdjoint(W*vDir)/domain.hypervolume
 
-
-	uadj['c']  = 0
 	uzadj['c'] = 0
-	vadj['c']  = 0
 	vzadj['c'] = 0
-	padj['c']  = 0
-	# ρadj['c']  = MN1L['c']
 	ρzadj['c'] = 0
 
 	# (6) Solve the adjoint equations bckwards
