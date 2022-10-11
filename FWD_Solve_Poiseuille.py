@@ -1036,6 +1036,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		cost       = (1./2)*Inner_Prod(dρ_inv_dX,dρ_inv_dX,domain);
 	else:
 		# get KE from the last point
+		U_vec = Field_to_Vec(domain,u,v);
 		KE    = Inner_Prod(U_vec,U_vec,domain);
 		costKE += dt*KE
 		DE_p = np.vdot(ρ['g'],W*ρ['g'])/domain.hypervolume
@@ -1628,7 +1629,7 @@ if __name__ == "__main__":
 	Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
 	E_0 = 0.02
 
-	N_ITERS = 1000;#int(T_opt/dt);
+	N_ITERS = 10;#int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
 		Nx = 3*Nx//2
