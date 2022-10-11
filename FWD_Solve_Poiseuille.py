@@ -803,8 +803,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)")
 
 	problem.add_bc("left( ρz) = 0");
-	problem.add_bc("right(ρz) = 0"   , condition="(nx != 0)")
-	problem.add_bc("integ(ρ,'z') = 0", condition="(nx == 0)")
+	problem.add_bc("right(ρz) = 0")
 
 	solver = problem.build_solver()
 
@@ -993,8 +992,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		problemMN.add_equation("ψz - dz(ψ)=0")
 		
 		problemMN.add_bc("left( Ψz) = 0");
-		problemMN.add_bc("right(Ψz) = 0"   , condition="(nx != 0)")
-		problemMN.add_bc("integ(Ψ,'z') = 0", condition="(nx == 0)")
+		problemMN.add_bc("right(Ψz) = 0")
 		
 		solverMN = problemMN.build_solver()
 		############### Build the adjoint matrices ###############
@@ -1280,8 +1278,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)")
 
 	problem.add_bc("left( ρz) = 0");
-	problem.add_bc("right(ρz) = 0"   , condition="(nx != 0)")
-	problem.add_bc("integ(ρ,'z') = 0", condition="(nx == 0)")
+	problem.add_bc("right(ρz) = 0")
 
 	solver = problem.build_solver()
 	############### (1.b) Build the adjoint matrices A^H ###############
@@ -1339,8 +1336,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	problemMN.add_equation("ψz - dz(ψ)=0")
 
 	problemMN.add_bc("left( Ψz) = 0");
-	problemMN.add_bc("right(Ψz) = 0"   , condition="(nx != 0)")
-	problemMN.add_bc("integ(Ψ,'z') = 0", condition="(nx == 0)")
+	problemMN.add_bc("right(Ψz) = 0")
 
 	solverMN = problemMN.build_solver()
 	############### (2.b) Build the adjoint matrices L^H ###############
