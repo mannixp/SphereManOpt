@@ -780,7 +780,8 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	Pe = Reynolds*Prandtl
 	Ri = Richardson
 
-	problem = de.LBVP(domain, variables=['u','v','ρ',	'uz','vz','ρz',		'p'])
+	problem = de.LBVP(domain, variables=['u','v','ρ',	'uz','vz','ρz',		'p','Fb'])
+	problem.meta['Fb']['z']['constant'] = True
 	problem.parameters['dt']    = dt
 	problem.parameters['ReInv'] = 1./Re
 	problem.parameters['Ri']    = Ri
@@ -788,7 +789,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	problem.add_equation("u/dt - ReInv*(dx(dx(u)) + dz(uz)) + dx(p) + (1. - z*z)*dx(u) + v*(-2.*z) = 0.")
 	problem.add_equation("v/dt - ReInv*(dx(dx(v)) + dz(vz)) + dz(p) + (1. - z*z)*dx(v) + ρ*Ri      = 0.")
-	problem.add_equation("ρ/dt - PeInv*(dx(dx(ρ)) + dz(ρz))         + (1. - z*z)*dx(ρ)             = 0.")
+	problem.add_equation("ρ/dt - PeInv*(dx(dx(ρ)) + dz(ρz))         + (1. - z*z)*dx(ρ) + Fb        = 0.")
 
 	problem.add_equation("dx(u) + vz = 0")
 	problem.add_equation("uz - dz(u) = 0");
@@ -804,6 +805,9 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	problem.add_bc("left( ρz) = 0");
 	problem.add_bc("right(ρz) = 0")
+
+	problem.add_equation("Fb 		   = 0",     condition="(nx != 0)");
+	problem.add_equation("integ(ρ,'z') = 0",     condition="(nx == 0)");
 
 	solver = problem.build_solver()
 
@@ -836,7 +840,9 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	rhsD12  = field.Field(domain, name='rhsD12')
 	rhsD13  = field.Field(domain, name='rhsD13')
 	rhsD14  = field.Field(domain, name='rhsD14')
-	fields = [rhsU,rhsV,rhsρ,	rhsD4,rhsD5,rhsD6,rhsD7,rhsD8,rhsD9,rhsD10,rhsD11,rhsD12,rhsD13,rhsD14]
+	rhsD15  = field.Field(domain, name='rhsD15')
+	rhsD16  = field.Field(domain, name='rhsD16')
+	fields = [rhsU,rhsV,rhsρ,	rhsD4,rhsD5,rhsD6,rhsD7,rhsD8,rhsD9,rhsD10,rhsD11,rhsD12,rhsD13,rhsD14,rhsD15,rhsD16]
 	equ_rhs = system.FieldSystem(fields)
 
 	################################################################################
@@ -1270,7 +1276,8 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	Pe = Reynolds*Prandtl
 	Ri = Richardson
 
-	problem = de.LBVP(domain, variables=['u','v','ρ','p','uz','vz','ρz'])
+	problem = de.LBVP(domain, variables=['u','v','ρ','p','uz','vz','ρz','Fb'])
+	problem.meta['Fb']['z']['constant'] = True
 	problem.parameters['dt'] 	= dt
 	problem.parameters['ReInv'] = 1./Re
 	problem.parameters['Ri'] 	= Ri
@@ -1278,7 +1285,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	problem.add_equation("u/dt - ReInv*(dx(dx(u)) + dz(uz)) + dx(p) + (1. - z*z)*dx(u) + v*(-2.*z) = 0.")
 	problem.add_equation("v/dt - ReInv*(dx(dx(v)) + dz(vz)) + dz(p) + (1. - z*z)*dx(v) + ρ*Ri      = 0.")
-	problem.add_equation("ρ/dt - PeInv*(dx(dx(ρ)) + dz(ρz))         + (1. - z*z)*dx(ρ)             = 0.")
+	problem.add_equation("ρ/dt - PeInv*(dx(dx(ρ)) + dz(ρz))         + (1. - z*z)*dx(ρ) + Fb        = 0.")
 
 	problem.add_equation("dx(u) + vz = 0")
 	problem.add_equation("uz - dz(u) = 0");
@@ -1294,6 +1301,9 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	problem.add_bc("left( ρz) = 0");
 	problem.add_bc("right(ρz) = 0")
+
+	problem.add_equation("Fb 		   = 0",     condition="(nx != 0)");
+	problem.add_equation("integ(ρ,'z') = 0",     condition="(nx == 0)");
 
 	solver = problem.build_solver()
 	############### (1.b) Build the adjoint matrices A^H ###############
@@ -1318,7 +1328,8 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	padj   = field.Field(domain, name='padj')
 	ρadj   = field.Field(domain, name='ρadj')
 	ρzadj  = field.Field(domain, name='ρzadj')
-	fields = [uadj,vadj,ρadj,padj,uzadj,vzadj,ρzadj]
+	Fbadj  = field.Field(domain, name='Fbadj')
+	fields = [uadj,vadj,ρadj,padj,uzadj,vzadj,ρzadj,Fbadj]
 	state_adj = system.FieldSystem(fields)
 
 	rhsUA   = field.Field(domain, name='rhsUA')
@@ -1335,7 +1346,9 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	rhsA12  = field.Field(domain, name='rhsA12')
 	rhsA13  = field.Field(domain, name='rhsA13')
 	rhsA14  = field.Field(domain, name='rhsA14')
-	fields  = [rhsUA,rhsVA,rhsRhoA,rhsPA,rhsuzA,rhsvzA,rhsRhozA,rhsA8,rhsA9,rhsA10,rhsA11,rhsA12,rhsA13,rhsA14  ]
+	rhsA15  = field.Field(domain, name='rhsA15')
+	rhsA16  = field.Field(domain, name='rhsA16')
+	fields  = [rhsUA,rhsVA,rhsRhoA,rhsPA,rhsuzA,rhsvzA,rhsRhozA,rhsA8,rhsA9,rhsA10,rhsA11,rhsA12,rhsA13,rhsA14,rhsA15 ,rhsA16 ]
 	equ_adj = system.FieldSystem(fields)
 
 	##########################################################
