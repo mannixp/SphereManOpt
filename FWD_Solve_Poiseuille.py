@@ -976,46 +976,61 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 				x = p.pre_right @ x
 			solver.state.set_pencil(p, x)
 			solver.state.scatter()
-	
+
 	################################################################
 
 	if   s == 1:
-		
+
 
 		# (2) Create the Linear boundary value problem
 		# i.e. [ P^L*∆*P^R ]*ψ = P^L*ρ
 		# 			 L      *X = F
 		# used to solve for the mix-norm.
 
-		problemMN = de.LBVP(domain, variables=['ψ','ψz'])
-		problemMN.add_equation("dx(dx(ψ)) + dz(ψz) = 0")
+		problemMN = de.LBVP(domain, variables=['ψ','ψz','FΨ'])
+		problemMN.meta[:]['z']['dirichlet'] = True;
+		problemMN.meta['FΨ']['z']['constant'] = True;
+		problemMN.add_equation("dx(dx(ψ)) + dz(ψz) + FΨ = 0")
 		problemMN.add_equation("ψz - dz(ψ)=0")
-		
-		problemMN.add_bc("left( Ψz) = 0");
-		problemMN.add_bc("right(Ψz) = 0")
-		
+
+		problemMN.add_equation("FΨ 		   = 0",     condition="(nx != 0)");
+		problemMN.add_equation("integ(ψ,'z') = 0",     condition="(nx == 0)");
+
+		problemMN.add_bc("left( ψz) = 0");
+		problemMN.add_bc("right(ψz) = 0");
+
 		solverMN = problemMN.build_solver()
-		############### Build the adjoint matrices ###############
+		############### (2.b) Build the adjoint matrices L^H ###############
 		solverMN.pencil_matsolvers_transposed = {}
 		for p in solverMN.pencils:
 			solverMN.pencil_matsolvers_transposed[p] = solverMN.matsolver(np.conj(p.L_exp).T, solverMN)
 		##########################################################
 
-		MN1   = field.Field(domain, name='MN1')
-		MN2   = field.Field(domain, name='MN2')
-		MN3   = field.Field(domain, name='MN3')
-		MN4   = field.Field(domain, name='MN4')
-		fields = [MN1,MN2,MN3,MN4]
-		MN_rhs = system.FieldSystem(fields)
+		# (2.c) Allocate all adj Field variables = number of eqns + bcs
+		MN1adj = field.Field(domain, name='MN1adj')
+		MN2adj = field.Field(domain, name='MN2adj')
+		MN3adj = field.Field(domain, name='MN3adj')
+		fields = [MN1adj,MN2adj,MN3adj]
+		MNadj_rhs = system.FieldSystem(fields)
+
+		MN1L   = field.Field(domain, name='MN1L')
+		MN2L   = field.Field(domain, name='MN2L')
+		MN3L   = field.Field(domain, name='MN3L')
+		MN4L   = field.Field(domain, name='MN4L')
+		MN5L   = field.Field(domain, name='MN5L')
+		MN6L   = field.Field(domain, name='MN6L')
+		fields = [MN1L,MN2L,MN3L,MN4L,MN5L,MN6L]
+		MNadj_lhs = system.FieldSystem(fields)
+		################################################################################
 
 		######################## (4) Solve the Mix Norm LBVP ########################
 		ψ 		 = solverMN.state['ψ'];
 		dρ_inv_dz= solverMN.state['ψz'];
-		MN1['c'] = ρ['c'];
+		MN1L['c'] = ρ['c'];
 
-		MN_rhs.gather()
+		MNadj_lhs.gather()
 		for p in solverMN.pencils:
-			b = p.pre_left @ MN_rhs.get_pencil(p)
+			b = p.pre_left @ MNadj_lhs.get_pencil(p)
 			x = solverMN.pencil_matsolvers[p].solve(b)
 			if p.pre_right is not None:
 				x = p.pre_right @ x
@@ -1036,14 +1051,14 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		# Less efficient but ensures consistent Inner Product used!!
 		dρ_inv_dX  = Field_to_Vec(domain,dρ_inv_dx,dρ_inv_dz);
 		cost       = (1./2.)*Inner_Prod(dρ_inv_dX,dρ_inv_dX,domain);
-	
+
 	else:
-		
+
 		# get KE from the last point
 		U_vec = Field_to_Vec(domain,u,v);
 		KE    = Inner_Prod(U_vec,U_vec,domain);
 		costKE += dt*KE
-		
+
 		DE_p = np.vdot(ρ['g'],W*ρ['g'])/domain.hypervolume
 		DE   = comm.allreduce(DE_p,op=MPI.SUM)
 
@@ -1331,12 +1346,17 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	# 			 L      *X = F
 	# used to solve for the mix-norm.
 
-	problemMN = de.LBVP(domain, variables=['ψ','ψz'])
-	problemMN.add_equation("dx(dx(ψ)) + dz(ψz) = 0")
+	problemMN = de.LBVP(domain, variables=['ψ','ψz','FΨ'])
+	problemMN.meta[:]['z']['dirichlet'] = True;
+	problemMN.meta['FΨ']['z']['constant'] = True;
+	problemMN.add_equation("dx(dx(ψ)) + dz(ψz) + FΨ = 0")
 	problemMN.add_equation("ψz - dz(ψ)=0")
 
-	problemMN.add_bc("left( Ψz) = 0");
-	problemMN.add_bc("right(Ψz) = 0")
+	problemMN.add_equation("FΨ 		   = 0",     condition="(nx != 0)");
+	problemMN.add_equation("integ(ψ,'z') = 0",     condition="(nx == 0)");
+
+	problemMN.add_bc("left( ψz) = 0");
+	problemMN.add_bc("right(ψz) = 0");
 
 	solverMN = problemMN.build_solver()
 	############### (2.b) Build the adjoint matrices L^H ###############
@@ -1348,14 +1368,17 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	# (2.c) Allocate all adj Field variables = number of eqns + bcs
 	MN1adj = field.Field(domain, name='MN1adj')
 	MN2adj = field.Field(domain, name='MN2adj')
-	fields = [MN1adj,MN2adj]
+	MN3adj = field.Field(domain, name='MN3adj')
+	fields = [MN1adj,MN2adj,MN3adj]
 	MNadj_rhs = system.FieldSystem(fields)
 
 	MN1L   = field.Field(domain, name='MN1L')
 	MN2L   = field.Field(domain, name='MN2L')
 	MN3L   = field.Field(domain, name='MN3L')
 	MN4L   = field.Field(domain, name='MN4L')
-	fields = [MN1L,MN2L,MN3L,MN4L]
+	MN5L   = field.Field(domain, name='MN5L')
+	MN6L   = field.Field(domain, name='MN6L')
+	fields = [MN1L,MN2L,MN3L,MN4L,MN5L,MN6L]
 	MNadj_lhs = system.FieldSystem(fields)
 	################################################################################
 
@@ -1432,7 +1455,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	W = weightMatrixDisc(domain);
 
 	if (s==1):
-		
+
 		vecx = transformInverse(X_FWD_DICT['u_fwd'][:,:,snapshot_index])*(W/domain.hypervolume)
 		vecz = transformInverse(X_FWD_DICT['w_fwd'][:,:,snapshot_index])*(W/domain.hypervolume)
 		snapshot_index -= 1
@@ -1445,7 +1468,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 		MN1adj['c'] = vecxhatdx + veczhatdz
 		MNadj_rhs.gather()
-		
+
 		# Solve system for each pencil, updating state
 		for p in solverMN.pencils:
 			if p.pre_right is not None:
@@ -1460,7 +1483,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 			MNadj_lhs.scatter()
 		#########################################################################
 		ρadj['c']  = MN1L['c']
-	
+
 	else:
 		uDir = X_FWD_DICT['u_fwd'][:,:,snapshot_index]
 		vDir = X_FWD_DICT['w_fwd'][:,:,snapshot_index]
@@ -1493,7 +1516,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 			equ_adj.set_pencil(p, x)
 			equ_adj.scatter()
 		#########################################################################
-		
+
 		uadj['c']  = rhsUA['c'].copy()
 		vadj['c']  = rhsVA['c'].copy()
 		ρadj['c']  = rhsRhoA['c'].copy()
@@ -1569,10 +1592,10 @@ def Norm_and_Inverse_Second_Derivative(rho,domain):
 
 	problem.add_equation("dx(dx(Ψ)) + dz(Ψz) + FΨ = f")
 	problem.add_equation("Ψz - dz(Ψ) = 0")
-	
+
 	problem.add_equation("FΨ 		   = 0",     condition="(nx != 0)");
 	problem.add_equation("integ(Ψ,'z') = 0",     condition="(nx == 0)");
-	
+
 	problem.add_bc("left( Ψz) = 0");
 	problem.add_bc("right(Ψz) = 0");
 
@@ -1618,8 +1641,8 @@ def File_Manips(k):
 	return None;
 
 
-#Adjoint_type = "Discrete";
-Adjoint_type = "Continuous";
+Adjoint_type = "Discrete";
+# Adjoint_type = "Continuous";
 
 if Adjoint_type == "Discrete":
 
@@ -1650,7 +1673,7 @@ if __name__ == "__main__":
 		dealias_scale = 1
 	else:
 		dealias_scale = 3/2
-	
+
 	#s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
 	s = 1; # (B) mix-norm minimisation (s = 1)
 
