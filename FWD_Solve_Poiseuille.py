@@ -435,8 +435,9 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 	# initialize the problem
 	#######################################################
 
-	problem = de.IVP(domain, variables=['p','b','u','w','bz','uz','wz'])
+	problem = de.IVP(domain, variables=['p','b','u','w','bz','uz','wz','Fb'])
 	problem.meta['p','bz','u','w']['z']['dirichlet'] = True
+	problem.meta['Fb']['z']['constant'] = True
 	problem.parameters['Re'] = Reynolds
 	problem.parameters['Pe'] = Reynolds*Prandtl
 	problem.parameters['Ri'] = Richardson
@@ -458,12 +459,12 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 
 	if Sim_Type == "Linear":
 
-		problem.add_equation("dt(b) - (1./Pe)*(dx(dx(b)) + dz(bz))         + U*dx(b)        = 0.")
+		problem.add_equation("dt(b) - (1./Pe)*(dx(dx(b)) + dz(bz))         + U*dx(b)   + Fb = 0.")
 		problem.add_equation("dt(u) - (1./Re)*(dx(dx(u)) + dz(uz)) - dx(p) + U*dx(u) + w*Uz = 0.")
 		problem.add_equation("dt(w) - (1./Re)*(dx(dx(w)) + dz(wz)) - dz(p) + U*dx(w) + b*Ri = 0.")
 
 	else:
-		problem.add_equation("dt(b) - (1./Pe)*(dx(dx(b)) + dz(bz))         + U*dx(b)        = -(u*dx(b) + w*bz)")
+		problem.add_equation("dt(b) - (1./Pe)*(dx(dx(b)) + dz(bz))         + U*dx(b)   + Fb = -(u*dx(b) + w*bz)")
 		problem.add_equation("dt(u) - (1./Re)*(dx(dx(u)) + dz(uz)) - dx(p) + U*dx(u) + w*Uz = -(u*dx(u) + w*uz)")
 		problem.add_equation("dt(w) - (1./Re)*(dx(dx(w)) + dz(wz)) - dz(p) + U*dx(w) + b*Ri = -(u*dx(w) + w*wz)")
 
@@ -472,6 +473,8 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 	problem.add_equation("uz - dz(u) = 0")
 	problem.add_equation("wz - dz(w) = 0")
 
+	problem.add_equation("Fb 		   = 0",     condition="(nx != 0)");
+	problem.add_equation("integ(b,'z') = 0",     condition="(nx == 0)");
 	# No-Flux
 	problem.add_bc("left(bz)  = 0");
 	problem.add_bc("right(bz) = 0");
@@ -481,7 +484,6 @@ def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non
 	problem.add_bc("left(w)  = 0")
 	problem.add_bc("right(u) = 0")
 	problem.add_bc("right(w) = 0", condition="(nx != 0)");
-	#problem.add_bc("right(p) = 0", condition="(nx == 0)");
 	problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)")
 
 	# Build solver
@@ -530,7 +532,8 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.05, N_ITERS=100.,
 	b = IVP_FWD.state['b'];	bz = IVP_FWD.state['bz'];
 	u = IVP_FWD.state['u']; uz = IVP_FWD.state['uz'];
 	w = IVP_FWD.state['w']; wz = IVP_FWD.state['wz'];
-	for f in [p, b,u,w, bz,uz,wz]:
+	Fb = IVP_FWD.state['Fb'];
+	for f in [p, b,u,w, bz,uz,wz,Fb]:
 		f.set_scales(domain.dealias, keep_data=False)
 		f['g'] = 0.
 
@@ -580,7 +583,7 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.05, N_ITERS=100.,
 
 	return Field_to_Vec(domain,u ,w );
 
-def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, α = 0, ß = 0, Prandtl=1., δ  = 0.25, filename=None):
+def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, s = 0, Prandtl=1., δ  = 0.25, filename=None):
 
 	"""
 	Integrates the initial conditions FWD N_ITERS using RBC code
@@ -623,8 +626,8 @@ def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	b = IVP_FWD.state['b'];	bz = IVP_FWD.state['bz'];
 	u = IVP_FWD.state['u']; uz = IVP_FWD.state['uz'];
 	w = IVP_FWD.state['w']; wz = IVP_FWD.state['wz'];
-
-	for f in [p, b,u,w, bz,uz,wz]:
+	Fb = IVP_FWD.state['Fb'];
+	for f in [p, b,u,w, bz,uz,wz,Fb]:
 		f.set_scales(domain.dealias, keep_data=False)
 		f['g'] = 0.
 
@@ -673,14 +676,20 @@ def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	logger.info("\n\n --> Timestepping FWD_Solve ");
 	#######################################################
 
-	N_PRINTS = N_ITERS//2;
-	if α == 0:
+	N_PRINTS = N_ITERS//10;
+	if s == 0:
 		flow = flow_tools.GlobalFlowProperty(IVP_FWD, cadence=1);
 	else:
 		flow = flow_tools.GlobalFlowProperty(IVP_FWD, cadence=N_PRINTS);
 	flow.add_property("inv_Vol*integ( u**2 + w**2 )", name='Kinetic' );
 	flow.add_property("inv_Vol*integ( b**2 	      )", name='buoyancy');
 
+	# Zero flux, div(U), div(B)
+	flow.add_property("inv_Vol*integ(b)", name='b_FLUX');
+
+	# Boundary conditions
+	flow.add_property("abs( interp( bz ,x='left',z='right') )",  name='< dz(b) =  1 >');
+	flow.add_property("abs( interp( bz ,x='left',z='left' ) )",  name='< dz(b) = -1 >');
 
 	J_TRAP = 0.; snapshot_index = 0;
 	while IVP_FWD.ok:
@@ -693,16 +702,19 @@ def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		snapshot_index+=1;
 
 		IVP_FWD.step(dt);
-		#if IVP_FWD.iteration % N_PRINTS == 0:
-		logger.info('Iterations: %i' %IVP_FWD.iteration)
-		logger.info('Sim time:   %f' %IVP_FWD.sim_time )
-		logger.info('Kinetic  (1/V)<U,U> = %e'%flow.volume_average('Kinetic') );
-		logger.info('Buoynacy (1/V)<b,b> = %e'%flow.volume_average('buoyancy'));
+		if IVP_FWD.iteration % N_PRINTS == 0:
+			logger.info('Iterations: %i' %IVP_FWD.iteration)
+			logger.info('Sim time:   %f' %IVP_FWD.sim_time )
+			logger.info('Kinetic  (1/V)<U,U> = %e'%flow.volume_average('Kinetic') );
+			logger.info('Buoynacy (1/V)<b,b> = %e'%flow.volume_average('buoyancy'));
+
+			logger.info('FLUX (1/V)<B> = %e'%(flow.volume_average('b_FLUX')) );
+			logger.info('dz(b) @ z= 1     = %e,  dz(b) @ z=-1      = %e'%( flow.max('< dz(b) =  1 >')     ,flow.max('< dz(b) = -1 >') ));
 
 		# 3) Evaluate Cost_function using flow tools,
 		# flow tools value is that of ( IVP_FWD.iteration-1 )
 		IVP_iter = IVP_FWD.iteration-1;
-		if (IVP_iter >= 0) and (IVP_iter <= N_ITERS) and (α == 0): # J = int_t <B,B> dt
+		if (IVP_iter >= 0) and (IVP_iter <= N_ITERS) and (s == 0): # J = int_t <B,B> dt
 			J_TRAP +=    dt*flow.volume_average('Kinetic');
 
 	# final statistics
@@ -712,31 +724,23 @@ def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	logger.info("\n\n--> Complete <--\n")
 
 
-	if   α == 1:
+	if   s == 1:
 
 		rho = domain.new_field();
 		rho['c'] = X_FWD_DICT['b_fwd'][:,:,-1];
-		if   ß == 1:
+		#||∇^(−β) ρ(x,T) ||^2
+		J_obj =  (1./2.)*Norm_and_Inverse_Second_Derivative(rho,domain)[0];
 
-			#||∇^(−β) ρ(x,T) ||^2
-			J_obj =  (1./2.)*Norm_and_Inverse_Second_Derivative(rho,domain)[0];
+	elif s == 0:
 
-		elif ß == 0:
-
-			#|| ρ(x,T) ||^2
-			J_obj =  (1./2.)*Integrate_Field(domain,rho**2);
-
-	elif α == 0:
-
-		T = 1.;#N_ITERS*dt;
-		J_obj = -(1./(2.*T))*J_TRAP; # Add a (-1) to maximise this
+		J_obj = -(1./2.)*J_TRAP; # Add a (-1) to maximise this
 
 	logger.info('J(U) = %e'%J_obj);
 
 	return J_obj;
 
 # @ Calum add the discrete forward here - if neccessary ?
-def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, α = 0, ß = 0, Prandtl=1., δ  = 0.25, filename=None):
+def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, s = 0, Prandtl=1., δ  = 0.25, filename=None):
 
 	"""
 	Integrates the initial conditions FWD N_ITERS using RBC code
@@ -799,7 +803,8 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)")
 
 	problem.add_bc("left( ρz) = 0");
-	problem.add_bc("right(ρz) = 0");
+	problem.add_bc("right(ρz) = 0"   , condition="(nx != 0)")
+	problem.add_bc("integ(ρ,'z') = 0", condition="(nx == 0)")
 
 	solver = problem.build_solver()
 
@@ -835,32 +840,6 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	fields = [rhsU,rhsV,rhsρ,	rhsD4,rhsD5,rhsD6,rhsD7,rhsD8,rhsD9,rhsD10,rhsD11,rhsD12,rhsD13,rhsD14]
 	equ_rhs = system.FieldSystem(fields)
 
-	################################################################################
-
-	# (2) Create the Linear boundary value problem
-	# i.e. [ P^L*∆*P^R ]*ψ = P^L*ρ
-	# 			 L      *X = F
-	# used to solve for the mix-norm.
-
-	problemMN = de.LBVP(domain, variables=['ψ','ψz'])
-	problemMN.add_equation("dx(dx(ψ)) + dz(ψz) = 0")
-	problemMN.add_equation("ψz - dz(ψ)=0")
-	problemMN.add_bc("left( ψ) = 0");
-	problemMN.add_bc("right(ψ) = 0");
-
-	solverMN = problemMN.build_solver()
-	############### Build the adjoint matrices ###############
-	solverMN.pencil_matsolvers_transposed = {}
-	for p in solverMN.pencils:
-	    solverMN.pencil_matsolvers_transposed[p] = solverMN.matsolver(np.conj(p.L_exp).T, solverMN)
-	##########################################################
-
-	MN1   = field.Field(domain, name='MN1')
-	MN2   = field.Field(domain, name='MN2')
-	MN3   = field.Field(domain, name='MN3')
-	MN4   = field.Field(domain, name='MN4')
-	fields = [MN1,MN2,MN3,MN4]
-	MN_rhs = system.FieldSystem(fields)
 	################################################################################
 
 	# Create the de-aliaising matrix
@@ -942,6 +921,8 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	W = weightMatrixDisc(domain)
 
+	################################################################
+
 	# (3) Time-step the equations forwards T = N_ITERS*dt
 	# performed by inverting a LVBP at each time-step
 	costKE = 0
@@ -957,7 +938,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		X_FWD_DICT['b_fwd'][:,:,snapshot_index] = ρ['c'].copy()
 		snapshot_index+=1;
 
-		#~~~~~~~~~~~ file-handler ~~~~~~~~~~~~~~~~
+		#~~~~~~~~~~~ 3.a File-handler ~~~~~~~~~~~~~~~~
 		U_vec = Field_to_Vec(domain,u,v);
 		KE    = Inner_Prod(U_vec,U_vec,domain);
 		costKE += dt*KE
@@ -982,19 +963,12 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 			ρ_save[1,:,:]   = comm.allreduce(ρ_save[1,:,:],op=MPI.SUM)
 		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-		# Print data
-		#if i % (N_ITERS//10) == 0:
-		# logger.info('\n Iterations: %i' %i)
-		# logger.info('Sim time:   %f' %float(i*dt) )
-		# logger.info('Kinetic  (1/V)<U,U> = %e'%KE );
-		# logger.info('Buoynacy (1/V)<b,b> = %e \n'%DE );
-
+		#~~~~~~~~~~~ 3.b Create the rhs + solve lbvp ~~~~~~~~~~~~~~~~
 		NLu,NLv,NLρ = NLterm(u['c'],ux,uz['c'],	v['c'],vx,vz['c'],	ρx,ρz['c'])
 		rhsU['c'] = u['c']/dt + NLu
 		rhsV['c'] = v['c']/dt + NLv
 		rhsρ['c'] = ρ['c']/dt + NLρ
 
-		######################## Solve the LBVP ########################
 		equ_rhs.gather()
 		for p in solver.pencils:
 			b = p.pre_left @ equ_rhs.get_pencil(p)
@@ -1003,9 +977,39 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 				x = p.pre_right @ x
 			solver.state.set_pencil(p, x)
 			solver.state.scatter()
-		################################################################
+	
+	################################################################
 
-	if   α == 1:
+	if   s == 1:
+		
+
+		# (2) Create the Linear boundary value problem
+		# i.e. [ P^L*∆*P^R ]*ψ = P^L*ρ
+		# 			 L      *X = F
+		# used to solve for the mix-norm.
+
+		problemMN = de.LBVP(domain, variables=['ψ','ψz'])
+		problemMN.add_equation("dx(dx(ψ)) + dz(ψz) = 0")
+		problemMN.add_equation("ψz - dz(ψ)=0")
+		
+		problemMN.add_bc("left( Ψz) = 0");
+		problemMN.add_bc("right(Ψz) = 0"   , condition="(nx != 0)")
+		problemMN.add_bc("integ(Ψ,'z') = 0", condition="(nx == 0)")
+		
+		solverMN = problemMN.build_solver()
+		############### Build the adjoint matrices ###############
+		solverMN.pencil_matsolvers_transposed = {}
+		for p in solverMN.pencils:
+			solverMN.pencil_matsolvers_transposed[p] = solverMN.matsolver(np.conj(p.L_exp).T, solverMN)
+		##########################################################
+
+		MN1   = field.Field(domain, name='MN1')
+		MN2   = field.Field(domain, name='MN2')
+		MN3   = field.Field(domain, name='MN3')
+		MN4   = field.Field(domain, name='MN4')
+		fields = [MN1,MN2,MN3,MN4]
+		MN_rhs = system.FieldSystem(fields)
+
 		######################## (4) Solve the Mix Norm LBVP ########################
 		ψ 		 = solverMN.state['ψ'];
 		dρ_inv_dz= solverMN.state['ψz'];
@@ -1033,12 +1037,15 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 		# Less efficient but ensures consistent Inner Product used!!
 		dρ_inv_dX  = Field_to_Vec(domain,dρ_inv_dx,dρ_inv_dz);
-		cost       = (1./2)*Inner_Prod(dρ_inv_dX,dρ_inv_dX,domain);
+		cost       = (1./2.)*Inner_Prod(dρ_inv_dX,dρ_inv_dX,domain);
+	
 	else:
+		
 		# get KE from the last point
 		U_vec = Field_to_Vec(domain,u,v);
 		KE    = Inner_Prod(U_vec,U_vec,domain);
 		costKE += dt*KE
+		
 		DE_p = np.vdot(ρ['g'],W*ρ['g'])/domain.hypervolume
 		DE   = comm.allreduce(DE_p,op=MPI.SUM)
 
@@ -1050,7 +1057,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		X_FWD_DICT['w_fwd'][:,:,snapshot_index] = v['c'].copy()
 		X_FWD_DICT['b_fwd'][:,:,snapshot_index] = ρ['c'].copy()
 
-		cost = -1./2*costKE
+		cost = (-1./2.)*costKE
 
 	# Save the files
 	if MPI.COMM_WORLD.Get_rank() == 0:
@@ -1071,7 +1078,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 # ~~~~~ ADJ Solvers  ~~~~~~~~~~~~~
 ##########################################################################
 
-def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, α = 0, ß = 0, Prandtl=1., δ  = 0.25, Sim_Type = "Non_Linear"):
+def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, s = 0, Prandtl=1., δ  = 0.25, Sim_Type = "Non_Linear"):
 
 	"""
 	Driver program for Rayleigh Benard code, which builds the adjoint solver object with options:
@@ -1103,8 +1110,9 @@ def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	#######################################################
 
 	# 2D Boussinesq hydrodynamics
-	problem = de.IVP(domain, variables=['p_adj','b_adj','u_adj','w_adj','bz_adj','uz_adj','wz_adj'])
+	problem = de.IVP(domain, variables=['p_adj','b_adj','u_adj','w_adj','bz_adj','uz_adj','wz_adj','Fb_adj'])
 	problem.meta['p_adj','bz_adj','u_adj','w_adj']['z']['dirichlet'] = True
+	problem.meta['Fb_adj']['z']['constant'] = True
 	problem.parameters['Re'] = Reynolds
 	problem.parameters['Pe'] = Reynolds*Prandtl
 	problem.parameters['Ri'] = Richardson
@@ -1127,15 +1135,15 @@ def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	wf = domain.new_field(); problem.parameters['wf' ] = wf
 	bf = domain.new_field(); problem.parameters['bf' ] = bf
 
-	if (α == 0):
+	if (s == 0):
 
-		problem.add_equation("dt(b_adj) - (1./Pe)*(dx(dx(b_adj)) + dz(bz_adj))             - U*dx(b_adj) + Ri*w_adj  =  								 (uf*dx(b_adj) + wf*bz_adj)   				   ");
+		problem.add_equation("dt(b_adj) - (1./Pe)*(dx(dx(b_adj)) + dz(bz_adj)) +   Fb_adj  - U*dx(b_adj) + Ri*w_adj =  								 (uf*dx(b_adj) + wf*bz_adj)   				   ");
 		problem.add_equation("dt(u_adj) - (1./Re)*(dx(dx(u_adj)) + dz(uz_adj)) - dx(p_adj) - U*dx(u_adj) 		     = -(u_adj*dx(uf) + w_adj*dx(wf) ) + (uf*dx(u_adj) + wf*uz_adj) - b_adj*dx(bf) - uf");
 		problem.add_equation("dt(w_adj) - (1./Re)*(dx(dx(w_adj)) + dz(wz_adj)) - dz(p_adj) - U*dx(w_adj) + u_adj*Uz  = -(u_adj*dz(uf) + w_adj*dz(wf) ) + (uf*dx(w_adj) + wf*wz_adj) - b_adj*dz(bf) - wf");
 
-	elif (α == 1):
+	elif (s == 1):
 
-		problem.add_equation("dt(b_adj) - (1./Pe)*(dx(dx(b_adj)) + dz(bz_adj))             - U*dx(b_adj) + Ri*w_adj  =  								 (uf*dx(b_adj) + wf*bz_adj)   			  ");
+		problem.add_equation("dt(b_adj) - (1./Pe)*(dx(dx(b_adj)) + dz(bz_adj)) +   Fb_adj  - U*dx(b_adj) + Ri*w_adj  =  								 (uf*dx(b_adj) + wf*bz_adj)   			  ");
 		problem.add_equation("dt(u_adj) - (1./Re)*(dx(dx(u_adj)) + dz(uz_adj)) - dx(p_adj) - U*dx(u_adj)             = -(u_adj*dx(uf) + w_adj*dx(wf) ) + (uf*dx(u_adj) + wf*uz_adj) - b_adj*dx(bf)");
 		problem.add_equation("dt(w_adj) - (1./Re)*(dx(dx(w_adj)) + dz(wz_adj)) - dz(p_adj) - U*dx(w_adj) + u_adj*Uz  = -(u_adj*dz(uf) + w_adj*dz(wf) ) + (uf*dx(w_adj) + wf*wz_adj) - b_adj*dz(bf)");
 
@@ -1146,6 +1154,9 @@ def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	problem.add_equation("uz_adj - dz(u_adj) = 0")
 	problem.add_equation("wz_adj - dz(w_adj) = 0")
 
+	problem.add_equation("Fb_adj 		   = 0",     condition="(nx != 0)");
+	problem.add_equation("integ(b_adj,'z') = 0",     condition="(nx == 0)");
+
 	# No-Flux
 	problem.add_bc("left( bz_adj) = 0");
 	problem.add_bc("right(bz_adj) = 0");
@@ -1154,8 +1165,7 @@ def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	problem.add_bc("left(u_adj)  = 0")
 	problem.add_bc("left(w_adj)  = 0")
 	problem.add_bc("right(u_adj) = 0")
-	problem.add_bc("right(w_adj) = 0", condition="(nx != 0)");
-	#problem.add_bc("right(p_adj) = 0", condition="(nx == 0)");
+	problem.add_bc("right(w_adj) = 0",     condition="(nx != 0)");
 	problem.add_bc("integ(p_adj,'z') = 0", condition="(nx == 0)")
 
 	# Build solver
@@ -1166,8 +1176,8 @@ def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	b_adj = IVP_ADJ.state['b_adj']; bz_adj = IVP_ADJ.state['bz_adj'];
 	u_adj = IVP_ADJ.state['u_adj']; uz_adj = IVP_ADJ.state['uz_adj'];
 	w_adj = IVP_ADJ.state['w_adj']; wz_adj = IVP_ADJ.state['wz_adj'];
-
-	for f in [p_adj, b_adj,u_adj,w_adj, bz_adj,uz_adj,wz_adj]:
+	Fb_adj = IVP_ADJ.state['Fb_adj'];
+	for f in [p_adj, b_adj,u_adj,w_adj, bz_adj,uz_adj,wz_adj,Fb_adj]:
 		f.set_scales(domain.dealias, keep_data=False)
 		f['g'] = 0.
 
@@ -1175,15 +1185,11 @@ def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	# set initial conditions
 	#######################################################
 
-	if (α == 1):
+	if (s == 1):
 
 		rho = domain.new_field();
 		rho['c'] = X_FWD_DICT['b_fwd'][:,:,-1];
-
-		if   (ß == 1):
-			b_adj['c'] = (-1.)*Norm_and_Inverse_Second_Derivative(rho,domain)[1]['c'];
-		elif (ß == 0):
-			b_adj['c'] = rho['c'];
+		b_adj['c'] = (-1.)*Norm_and_Inverse_Second_Derivative(rho,domain)[1]['c'];
 
 	#######################################################
 	# evolution parameters
@@ -1232,7 +1238,7 @@ def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	return [ Field_to_Vec(domain,u_adj ,w_adj) ];
 
 # @ Calum add the discrete forward here
-def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, α = 0, ß = 0, Prandtl=1., δ  = 0.25, Sim_Type = "Non_Linear"):
+def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, s = 0, Prandtl=1., δ  = 0.25, Sim_Type = "Non_Linear"):
 
 	# Set to info level rather than the debug default
 	root = logging.root
@@ -1274,7 +1280,8 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)")
 
 	problem.add_bc("left( ρz) = 0");
-	problem.add_bc("right(ρz) = 0");
+	problem.add_bc("right(ρz) = 0"   , condition="(nx != 0)")
+	problem.add_bc("integ(ρ,'z') = 0", condition="(nx == 0)")
 
 	solver = problem.build_solver()
 	############### (1.b) Build the adjoint matrices A^H ###############
@@ -1330,8 +1337,10 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	problemMN = de.LBVP(domain, variables=['ψ','ψz'])
 	problemMN.add_equation("dx(dx(ψ)) + dz(ψz) = 0")
 	problemMN.add_equation("ψz - dz(ψ)=0")
-	problemMN.add_bc("left( ψ) = 0");
-	problemMN.add_bc("right(ψ) = 0");
+
+	problemMN.add_bc("left( Ψz) = 0");
+	problemMN.add_bc("right(Ψz) = 0"   , condition="(nx != 0)")
+	problemMN.add_bc("integ(Ψ,'z') = 0", condition="(nx == 0)")
 
 	solverMN = problemMN.build_solver()
 	############### (2.b) Build the adjoint matrices L^H ###############
@@ -1426,7 +1435,8 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	W = weightMatrixDisc(domain);
 
-	if(α==1):
+	if (s==1):
+		
 		vecx = transformInverse(X_FWD_DICT['u_fwd'][:,:,snapshot_index])*(W/domain.hypervolume)
 		vecz = transformInverse(X_FWD_DICT['w_fwd'][:,:,snapshot_index])*(W/domain.hypervolume)
 		snapshot_index -= 1
@@ -1439,6 +1449,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 		MN1adj['c'] = vecxhatdx + veczhatdz
 		MNadj_rhs.gather()
+		
 		# Solve system for each pencil, updating state
 		for p in solverMN.pencils:
 			if p.pre_right is not None:
@@ -1453,6 +1464,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 			MNadj_lhs.scatter()
 		#########################################################################
 		ρadj['c']  = MN1L['c']
+	
 	else:
 		uDir = X_FWD_DICT['u_fwd'][:,:,snapshot_index]
 		vDir = X_FWD_DICT['w_fwd'][:,:,snapshot_index]
@@ -1485,6 +1497,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 			equ_adj.set_pencil(p, x)
 			equ_adj.scatter()
 		#########################################################################
+		
 		uadj['c']  = rhsUA['c'].copy()
 		vadj['c']  = rhsVA['c'].copy()
 		ρadj['c']  = rhsRhoA['c'].copy()
@@ -1520,7 +1533,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		vzadj['c'] = adjvz
 		ρzadj['c'] = adjρz
 
-		if(α==0):
+		if (s==0):
 			# Add adjoint forcing
 			uadj['c'] -= dt*transformInverseAdjoint(W*uDir)/domain.hypervolume
 			vadj['c'] -= dt*transformInverseAdjoint(W*vDir)/domain.hypervolume
@@ -1553,14 +1566,19 @@ def Norm_and_Inverse_Second_Derivative(rho,domain):
 	import dedalus.public as de
 
 	# Poisson equation
-	problem = de.LBVP(domain, variables=['Ψ','Ψz']);
-	problem.meta['Ψ']['z']['dirichlet'] = True;
+	problem = de.LBVP(domain, variables=['Ψ','Ψz','FΨ']);
+	problem.meta[:]['z']['dirichlet'] = True;
+	problem.meta['FΨ']['z']['constant'] = True;
 	problem.parameters['f' ] = rho;
 
-	problem.add_equation("dx(dx(Ψ)) + dz(Ψz) = f")
+	problem.add_equation("dx(dx(Ψ)) + dz(Ψz) + FΨ = f")
 	problem.add_equation("Ψz - dz(Ψ) = 0")
-	problem.add_bc("left(Ψ)  = 0");
-	problem.add_bc("right(Ψ) = 0");
+	
+	problem.add_equation("FΨ 		   = 0",     condition="(nx != 0)");
+	problem.add_equation("integ(Ψ,'z') = 0",     condition="(nx == 0)");
+	
+	problem.add_bc("left( Ψz) = 0");
+	problem.add_bc("right(Ψz) = 0");
 
 	# Build solver
 	solver = problem.build_solver()
@@ -1571,7 +1589,6 @@ def Norm_and_Inverse_Second_Derivative(rho,domain):
 	fz = solver.state['Ψz']
 
 	fx = domain.new_field(name='fx'); Ψ.differentiate('x',out=fx);
-	#fz = domain.new_field(name='fz'); Ψ.differentiate('z',out=fz);
 
 	return Integrate_Field(domain,fx**2 + fz**2), Ψ;
 
@@ -1605,8 +1622,8 @@ def File_Manips(k):
 	return None;
 
 
-Adjoint_type = "Discrete";
-# Adjoint_type = "Continuous";
+#Adjoint_type = "Discrete";
+Adjoint_type = "Continuous";
 
 if Adjoint_type == "Discrete":
 
@@ -1629,7 +1646,7 @@ if __name__ == "__main__":
 	Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
 	E_0 = 0.02
 
-	N_ITERS = 10;#int(T_opt/dt);
+	N_ITERS = 100;#int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
 		Nx = 3*Nx//2
@@ -1637,19 +1654,20 @@ if __name__ == "__main__":
 		dealias_scale = 1
 	else:
 		dealias_scale = 3/2
-	α = 0; ß = 0; # (A) time-averaged-kinetic-energy maximisation (α = 0)
-	# α = 1; ß = 1; # (B) mix-norm minimisation (α = 1, β = 1)
+	
+	#s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
+	s = 1; # (B) mix-norm minimisation (s = 1)
 
 	domain, Ux0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
 
-	Prandtl=1.; δ  = 0.25
-	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, α,ß, Prandtl,δ];
+	Prandtl=1.; δ  = 0.125
+	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, s,Prandtl,δ];
 	args_IP = [domain,None];
 
 
-	# FWD_Solve([Ux0],*args_f);
-	# sys.exit()
+	#FWD_Solve([Ux0],*args_f);
+	#sys.exit()
 
 	#sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
 
@@ -1660,8 +1678,8 @@ if __name__ == "__main__":
 	sys.exit()
 
 	# # Run the optimisation
-	# from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	# RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 10., LS = 'LS_armijo', CG = False, callback=File_Manips)
-	# plot_optimisation(RESIDUAL,FUNCT);
+	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
+	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 10., LS = 'LS_armijo', CG = False, callback=File_Manips)
+	plot_optimisation(RESIDUAL,FUNCT);
 
 	####
