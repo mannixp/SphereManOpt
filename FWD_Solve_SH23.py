@@ -145,9 +145,8 @@ def Vec_to_Field(domain,A, Bx0):
 
 	return None;
 
-#def Inner_Prod(x,y,domain,rand_arg=None):
-def Inner_Prod(x,y,*args_IP,**kwargs_IP):	
-	
+def Inner_Prod(x,y,domain,rand_arg=None):
+
 	# The line-search requires the IP
 	# m = <\Nabla J^T, P_k >, where P_k = - \Nabla J(B_0)^T
 	# Must be evaluated using an integral consistent with our objective function
@@ -417,8 +416,7 @@ def FWD_Solve_IVP_PREP(X_k, domain, dt=1e-02,  N_ITERS=100, N_SUB_ITERS=100):
 
 	return u;
 
-#def FWD_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT,filename=None, Adjoint_type = "Discrete"):
-def FWD_Solve_IVP_Lin(X_k,*args_f, **kwargs_f):	
+def FWD_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT,filename=None, Adjoint_type = "Discrete"):
 	
 	"""
 	Integrates the initial condition X(t=0) = Bx0 -> B(x,T);
@@ -610,9 +608,7 @@ def Compatib_Cond(X_FWD_DICT, domain, dt):
 
 	return {'q_init':q_init};
 
-def ADJ_Solve_IVP_Lin(X_k,*args_f, **kwargs_f):
-#def ADJ_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, filename=None, Adjoint_type = "Discrete"):
-		
+def ADJ_Solve_IVP_Lin(X_k, domain, dt,  N_ITERS,N_SUB_ITERS, X_FWD_DICT, filename=None, Adjoint_type = "Discrete"):	
 	"""
 	Driver program for Periodic Box Dynamo, which builds the forward solver object with options:
 
@@ -800,40 +796,36 @@ if __name__ == "__main__":
 	domain, X_0  = Generate_IC(M_0);
 	X_FWD_DICT   = GEN_BUFFER(domain, N_SUB_ITERS)
 
-	filename  = None;
-	rand_arg  = None;
-	
 	Adjoint_type = "Discrete";
 	#Adjoint_type = "Continuous";
-	
-	# Positional arguments
 	args_IP = (domain,None);
-	args_f  = [domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT, filename, Adjoint_type];
+	args_f  = [domain, dt,  N_ITERS, N_SUB_ITERS, X_FWD_DICT, None, Adjoint_type];
 
-	# Keyword arguments
-	kwargs_IP = {"domain":domain,"rand_arg":rand_arg};
-	kwargs_f  = {"domain":domain, "dt":dt, "N_ITERS":N_ITERS, "N_SUB_ITERS":N_SUB_ITERS, "X_FWD_DICT":X_FWD_DICT, "filename":filename, "Adjoint_type":Adjoint_type}; 
 	
+	'''
 	from TestGrad import Adjoint_Gradient_Test
 	domain, X_0  = Generate_IC(1.);
 	_     , dX_0 = Generate_IC(1.);
-	Adjoint_Gradient_Test(X_0,dX_0,FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,kwargs_f,kwargs_IP)
-	#sys.exit()
+	Adjoint_Gradient_Test(X_0,dX_0,FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,epsilon=1e-04)
+	sys.exit()
+	'''
 
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
 	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[M_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,max_iters=100,LS = 'LS_wolfe', CG = True,callback=File_Manips)
 	plot_optimisation(RESIDUAL,FUNCT);
 
-
-	# Save the different errors 
 	'''
-	DAL_file = h5py.File('DAL_PROGRESS.h5', 'r+')
+	# Save the different errors 
+	DAL_file = h5py.File('/Users/pmannix/Desktop/Nice_CASTOR/Discrete_Adjoint_SH23/LS_TEST_MP_0.0725_DISC_SD/DAL_PROGRESS.h5', 'r+')
 
 	# Problem Params
-	RESIDUAL = DAL_file['Residual'][()];
-	FUNCT    = DAL_file['Function_Value'][()]; 
+	RESIDUAL = DAL_file['RESIDUAL'][()];
+	FUNCT    = DAL_file['FUNCT'][()]; 
 	X_0 	 = DAL_file['X_opt'][0];
+
+	print(FUNCT)
 	
-	DAL_file.close();   
+	#DAL_file.close();    
+	plot_optimisation([RESIDUAL],FUNCT);
 	'''
 	###
