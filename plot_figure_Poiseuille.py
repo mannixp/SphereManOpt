@@ -122,28 +122,28 @@ def Plot_U_and_B(file_names,times,LEN,CAD,Just_B):
 
 			#KE = u[index,:,:]**2 + w[index,:,:]**2;
 			#cs = ax[0].contourf(X,Z,KE.T,cmap='RdBu',levels=30)
-			cs = ax[0].contourf(X,Z,Ω[index,:,:].T,cmap='RdBu',levels=30)
+			cs = ax[0].contourf(X,Z,Ω[index,:,:].T,vmin=-2., vmax=2.,cmap='RdBu',levels=30)
 			
 			skip=(slice(None,None,2),slice(None,None,2))
 			#ax[0].quiver(X[skip],Z[skip],u[index,:,:][skip].T,w[index,:,:][skip].T,width=0.005);
-			fig.colorbar(cs,ax=ax[0]);
+			fig.colorbar(cs,ax=ax[0],ticks=[-1.,0.,1.]);
 
 			#ax[0].set_title(r'$u^2 + w^2$, vecs - $(u,w)$');
-			ax[0].set_title(r'$Ω$, vecs - $(u,w)$');
-			ax[0].set_xlabel(r'Shearwise - $x$')#, fontsize=18)
-			ax[0].set_ylabel(r'Spanwise  - $z$')#, fontsize=18)
+			#ax[0].set_title(r'$Ω$, vecs - $(u,w)$');
+			#ax[0].set_xlabel(r'Shearwise - $x$')#, fontsize=18)
+			#ax[0].set_ylabel(r'Spanwise  - $z$')#, fontsize=18)
 
 			#------------------------------------ #------------------------------------
 			#ax2 = plt.subplot(222)
-			cs = ax[1].contourf(X,Z,b[index,:,:].T,cmap='RdBu',levels=30)
+			cs = ax[1].contourf(X,Z,b[index,:,:].T,vmin=-.5, vmax=.5,cmap='RdBu',levels=30)
 			
 			#skip=(slice(None,None,4),slice(None,None,4))
 			#ax2.quiver(Z[skip],X[skip], B_z[index,:,SLICE_y,:][skip].T,B_x[index,:,SLICE_y,:][skip].T,width=0.005);
-			fig.colorbar(cs,ax=ax[1]);
+			fig.colorbar(cs,ax=ax[1],ticks=[-0.5,0.,0.5]);
 
-			ax[1].set_title(r'$b$');
-			ax[1].set_xlabel(r'Shearwise  - $x$')
-			ax[1].set_ylabel(r'Streamwise - $z$')
+			#ax[1].set_title(r'$b$');
+			#ax[1].set_xlabel(r'Shearwise  - $x$')
+			#ax[1].set_ylabel(r'Streamwise - $z$')
 
 			#------------------------------------ #------------------------------------
 			# Save figure
