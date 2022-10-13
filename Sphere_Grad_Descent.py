@@ -778,10 +778,10 @@ def Optimise_On_Multi_Sphere(X_0, M_0, f, myfprime, inner_prod, args_f = (), arg
 
         # Perform a line-search for the step-size α_k to ensure descent 
         if (R.Iterations == 0) or (LS == LS_armijo_multiple):
-            alpha_k, f_evals, J_k = LS_armijo_multiple(f, inner_prod, M_0, X_k, g_k, d_k,  J_k,  args_f, args_IP, alpha0 = alpha_k)
+            alpha_k, f_evals, J_k = LS_armijo_multiple(f, inner_prod, M_0, X_k, g_k, d_k,  J_k,  args_f, args_IP, kwargs_f, kwargs_IP, alpha0 = alpha_k)
             func_evals+=f_evals;
         else:
-            alpha_k, f_evals, g_evals, J_k, J_k_old, derphi_star = LS(f, myfprime, inner_prod, M_0, X_k, g_k, d_k, J_k,J_k_old, args_f, args_IP,amax=alpha_max);
+            alpha_k, f_evals, g_evals, J_k, J_k_old, derphi_star = LS(f, myfprime, inner_prod, M_0, X_k, g_k, d_k, J_k,J_k_old, args_f, args_IP, kwargs_f, kwargs_IP, amax=alpha_max);
             grad_evals+=g_evals;
             func_evals+=f_evals;
 
@@ -845,15 +845,15 @@ def plot_optimisation(THETA,FUNCT):
     # Plot J(X)
     x = np.arange(0,len(FUNCT),1);
     #ax1.semilogy(x[0:-2],abs(FUNCT - np.ones(len(x))*FUNCT[-1])[0:-2],color='tab:red',linewidth=1.5, markersize=3, linestyle=':');
-    ax1.plot(x,FUNCT,color='tab:red',linewidth=1.5, markersize=3, linestyle=':');
+    ax1.plot(x,FUNCT,color='tab:red',linewidth=3, markersize=3, linestyle=':');
 
     #f = abs(np.roll(FUNCT,-1) - np.ones(len(x))*FUNCT[-1])/abs(FUNCT - np.ones(len(x))*FUNCT[-1]);print('r^2 = ',np.mean(f[5:-5]),'\n')
 
     # Unpack r_k then plot
     linestyles = ['-.','-'];
-    for i,r_k in enumerate(THETA):
+    for i,r_k in enumerate(THETA): 
         x = np.arange(0,len(r_k),1);
-        ax2.semilogy(x,r_k,color='tab:blue',linewidth=1.5, markersize=3,label=r"c_%i"%i, linestyle=linestyles[i])
+        ax2.semilogy(x,r_k,color='tab:blue',linewidth=3, markersize=3,label=r"c_%i"%i, linestyle=linestyles[i])
         
     ax1.tick_params(axis='y', labelcolor='tab:red',labelsize=26)
     ax1.tick_params(axis='x',labelsize=26)
@@ -867,12 +867,12 @@ def plot_optimisation(THETA,FUNCT):
     ax2.tick_params(axis='y', labelcolor='tab:blue',labelsize=26)
     #ax2.set_ylabel(r'$r_k$',color='tab:blue',fontsize=26)
     ax2.set_yticks(ax2.get_yticks()[::2])
-    #ax2.set_ylim([1e-07,1e02])  
+    ax2.set_ylim([1e-06,1e03])  
     ax2.legend(fontsize=18)
 
     plt.grid()
     plt.tight_layout(pad=1, w_pad=1.5)
-    fig.savefig("PCA_theta_DISC_SD.pdf",dpi=1200);
+    fig.savefig("SH23_SD.pdf",dpi=1200);
     plt.show();
 
     return None;
