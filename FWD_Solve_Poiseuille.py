@@ -866,6 +866,8 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	# Create an evaluator for the nonlinear terms
 	def NLterm(u,ux,uz,	v,vx,vz,	ρx,ρz):
+		for f in [u,ux,uz, v,vx,vz, ρx,ρz]: # Before ifft keep only 2/3 of wavenumbers
+			f=DA*f;
 
 		u_grid = transformInverse(u);
 		v_grid = transformInverse(v);
@@ -874,7 +876,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		NLv = -u_grid*transformInverse(vx) - v_grid*transformInverse(vz)
 		NLρ = -u_grid*transformInverse(ρx) - v_grid*transformInverse(ρz)
 
-		return DA*transform(NLu),DA*transform(NLv),DA*transform(NLρ)
+		return transform(NLu),transform(NLv),transform(NLρ)
 
 	# Function for taking derivatives in Fourier space
 	def derivativeX(vec):
@@ -1445,9 +1447,9 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	# of the adjoint of the jacobian nonlinear term
 	# i.e. (∂F/∂x)^†*X^†
 	def NLtermAdj(vec1adj,vec2adj,vec3adj,statess):
-		vec1adj = transformAdjoint(DA*vec1adj)
-		vec2adj = transformAdjoint(DA*vec2adj)
-		vec3adj = transformAdjoint(DA*vec3adj)
+		vec1adj = transformAdjoint(vec1adj)
+		vec2adj = transformAdjoint(vec2adj)
+		vec3adj = transformAdjoint(vec3adj)
 		adju  = transformInverseAdjoint(-statess[1]*vec1adj - statess[4]*vec2adj - statess[7]*vec3adj)
 		adjux = transformInverseAdjoint(-statess[0]*vec1adj)
 		adjuz = transformInverseAdjoint(-statess[3]*vec1adj)
@@ -1457,6 +1459,9 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		adjρ = transformInverseAdjoint(0*vec2adj)
 		adjρx = transformInverseAdjoint(-statess[0]*vec3adj)
 		adjρz = transformInverseAdjoint(-statess[3]*vec3adj)
+
+		for f in [adju,adjux,adjuz,adjv,adjvx,adjvz,adjρ,adjρx,adjρz]:
+			f=DA*f;
 		return adju,adjux,adjuz,adjv,adjvx,adjvz,adjρ,adjρx,adjρz
 
 
@@ -1681,13 +1686,11 @@ if __name__ == "__main__":
 	N_ITERS = 100;#int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
-		Nx = 3*Nx//2
-		Nz = 3*Nz//2
 		dealias_scale = 1
 	else:
 		dealias_scale = 3/2
 
-	#s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
+	# s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
 	s = 1; # (B) mix-norm minimisation (s = 1)
 
 	domain, Ux0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
