@@ -1555,10 +1555,14 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		ρxDir = transformInverse(DA*derivativeX(ρDir.copy()))
 		ρzDir = transformInverse(DA*derivativeZ(ρDir.copy()))
 
-		uDir = transformInverse(DA*uDir.copy())
-		vDir = transformInverse(DA*vDir.copy())
+		uDirDA = transformInverse(DA*uDir.copy())
+		vDirDA = transformInverse(DA*vDir.copy())
 
-		states = [uDir,uxDir,uzDir,vDir,vxDir,vzDir,ρDir,ρxDir,ρzDir]
+		# Forcing needs un-deliased version
+		uDir = transformInverse(uDir.copy())
+		vDir = transformInverse(vDir.copy())
+
+		states = [uDirDA,uxDir,uzDir,vDirDA,vxDir,vzDir,ρDir,ρxDir,ρzDir]
 
 		snapshot_index -= 1
 
@@ -1691,8 +1695,8 @@ if __name__ == "__main__":
 	else:
 		dealias_scale = 3/2
 
-	# s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
-	s = 1; # (B) mix-norm minimisation (s = 1)
+	s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
+	# s = 1; # (B) mix-norm minimisation (s = 1)
 
 	domain, Ux0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
