@@ -866,15 +866,15 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	# Create an evaluator for the nonlinear terms
 	def NLterm(u,ux,uz,	v,vx,vz,	ρx,ρz):
-		for f in [u,ux,uz, v,vx,vz, ρx,ρz]: # Before ifft keep only 2/3 of wavenumbers
-			f=DA*f;
+		# for f in [u,ux,uz, v,vx,vz, ρx,ρz]: # Before ifft keep only 2/3 of wavenumbers
+		# 	f=DA*f;
 
-		u_grid = transformInverse(u);
-		v_grid = transformInverse(v);
+		u_grid = transformInverse(DA*u);
+		v_grid = transformInverse(DA*v);
 
-		NLu = -u_grid*transformInverse(ux) - v_grid*transformInverse(uz)
-		NLv = -u_grid*transformInverse(vx) - v_grid*transformInverse(vz)
-		NLρ = -u_grid*transformInverse(ρx) - v_grid*transformInverse(ρz)
+		NLu = -u_grid*transformInverse(DA*ux) - v_grid*transformInverse(DA*uz)
+		NLv = -u_grid*transformInverse(DA*vx) - v_grid*transformInverse(DA*vz)
+		NLρ = -u_grid*transformInverse(DA*ρx) - v_grid*transformInverse(DA*ρz)
 
 		return transform(NLu),transform(NLv),transform(NLρ)
 
@@ -1461,7 +1461,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		adjρz = transformInverseAdjoint(-statess[3]*vec3adj)
 
 		for f in [adju,adjux,adjuz,adjv,adjvx,adjvz,adjρ,adjρx,adjρz]:
-			f=DA*f;
+			f *= DA;
 		return adju,adjux,adjuz,adjv,adjvx,adjvz,adjρ,adjρx,adjρz
 
 
@@ -1546,17 +1546,17 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		vDir = X_FWD_DICT['w_fwd'][:,:,snapshot_index]
 		ρDir = X_FWD_DICT['b_fwd'][:,:,snapshot_index]
 
-		uxDir = transformInverse(derivativeX(uDir.copy()))
-		uzDir = transformInverse(derivativeZ(uDir.copy()))
+		uxDir = transformInverse(DA*derivativeX(uDir.copy()))
+		uzDir = transformInverse(DA*derivativeZ(uDir.copy()))
 
-		vxDir = transformInverse(derivativeX(vDir.copy()))
-		vzDir = transformInverse(derivativeZ(vDir.copy()))
+		vxDir = transformInverse(DA*derivativeX(vDir.copy()))
+		vzDir = transformInverse(DA*derivativeZ(vDir.copy()))
 
-		ρxDir = transformInverse(derivativeX(ρDir.copy()))
-		ρzDir = transformInverse(derivativeZ(ρDir.copy()))
+		ρxDir = transformInverse(DA*derivativeX(ρDir.copy()))
+		ρzDir = transformInverse(DA*derivativeZ(ρDir.copy()))
 
-		uDir = transformInverse(uDir.copy())
-		vDir = transformInverse(vDir.copy())
+		uDir = transformInverse(DA*uDir.copy())
+		vDir = transformInverse(DA*vDir.copy())
 
 		states = [uDir,uxDir,uzDir,vDir,vxDir,vzDir,ρDir,ρxDir,ρzDir]
 
@@ -1680,10 +1680,11 @@ if __name__ == "__main__":
 
 	Re = 500.;  Ri = 0.05;
 	#Nx = 256; Nz = 128; T_opt = 10; dt = 5e-04;
-	Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
+	# Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
+	Nx = 255; Nz = 126; T_opt = 5; dt = 5e-03;
 	E_0 = 0.02
 
-	N_ITERS = 100;#int(T_opt/dt);
+	N_ITERS = 1000;#int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
 		dealias_scale = 1
