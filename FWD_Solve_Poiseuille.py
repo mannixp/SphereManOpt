@@ -866,15 +866,14 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	# Create an evaluator for the nonlinear terms
 	def NLterm(u,ux,uz,	v,vx,vz,	ρx,ρz):
-		# for f in [u,ux,uz, v,vx,vz, ρx,ρz]: # Before ifft keep only 2/3 of wavenumbers
-		# 	f=DA*f;
+		for f in [u,ux,uz, v,vx,vz, ρx,ρz]: # Before ifft keep only 2/3 of wavenumbers
+			f*=DA;
+		u_grid = transformInverse(u);
+		v_grid = transformInverse(v);
 
-		u_grid = transformInverse(DA*u);
-		v_grid = transformInverse(DA*v);
-
-		NLu = -u_grid*transformInverse(DA*ux) - v_grid*transformInverse(DA*uz)
-		NLv = -u_grid*transformInverse(DA*vx) - v_grid*transformInverse(DA*vz)
-		NLρ = -u_grid*transformInverse(DA*ρx) - v_grid*transformInverse(DA*ρz)
+		NLu = -u_grid*transformInverse(ux) - v_grid*transformInverse(uz)
+		NLv = -u_grid*transformInverse(vx) - v_grid*transformInverse(vz)
+		NLρ = -u_grid*transformInverse(ρx) - v_grid*transformInverse(ρz)
 
 		return transform(NLu),transform(NLv),transform(NLρ)
 
@@ -1458,8 +1457,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		adjvz = transformInverseAdjoint(-statess[3]*vec2adj)
 		adjρ = transformInverseAdjoint(0*vec2adj)
 		adjρx = transformInverseAdjoint(-statess[0]*vec3adj)
-		adjρz = transformInverseAdjoint(-statess[3]*vec3adj)
-
+		adjρz = transformInverseAdjoint(-statess[3]*vec3adj);
 		for f in [adju,adjux,adjuz,adjv,adjvx,adjvz,adjρ,adjρx,adjρz]:
 			f *= DA;
 		return adju,adjux,adjuz,adjv,adjvx,adjvz,adjρ,adjρx,adjρz
@@ -1555,10 +1553,14 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		ρxDir = transformInverse(DA*derivativeX(ρDir.copy()))
 		ρzDir = transformInverse(DA*derivativeZ(ρDir.copy()))
 
-		uDir = transformInverse(DA*uDir.copy())
-		vDir = transformInverse(DA*vDir.copy())
+		uDirDA = transformInverse(DA*uDir.copy())
+		vDirDA = transformInverse(DA*vDir.copy())
 
-		states = [uDir,uxDir,uzDir,vDir,vxDir,vzDir,ρDir,ρxDir,ρzDir]
+		# Forcing needs un-deliased version
+		uDir = transformInverse(uDir.copy())
+		vDir = transformInverse(vDir.copy())
+
+		states = [uDirDA,uxDir,uzDir,vDirDA,vxDir,vzDir,ρDir,ρxDir,ρzDir]
 
 		snapshot_index -= 1
 
@@ -1679,19 +1681,17 @@ if __name__ == "__main__":
 
 
 	Re = 500.;  Ri = 0.05;
-	#Nx = 256; Nz = 128; T_opt = 10; dt = 5e-04;
-	# Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
 	Nx = 255; Nz = 126; T_opt = 5; dt = 5e-03;
 	E_0 = 0.02
 
-	N_ITERS = 1000;#int(T_opt/dt);
+	N_ITERS = int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
 		dealias_scale = 1
 	else:
 		dealias_scale = 3/2
 
-	# s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
+	#s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
 	s = 1; # (B) mix-norm minimisation (s = 1)
 
 	domain, Ux0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
@@ -1702,16 +1702,16 @@ if __name__ == "__main__":
 	args_IP = [domain,None];
 
 
-	#FWD_Solve([Ux0],*args_f);
+	# Test the gradient
+	#from TestGrad import Adjoint_Gradient_Test
+	#_, dUx0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
+	#Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
 	#sys.exit()
 
-	#sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
-
-	# Test the gradient
-	from TestGrad import Adjoint_Gradient_Test
-	_, dUx0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
-	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
-	sys.exit()
+	LS = 'LS_armijo'; CG = False;
+	LS = 'LS_wolfe';  CG = False;
+	LS = 'LS_armijo'; CG = True;
+	LS = 'LS_wolfe';  CG = True;
 
 	# # Run the optimisation
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
