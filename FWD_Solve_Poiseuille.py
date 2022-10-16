@@ -99,7 +99,7 @@ def weightMatrixDisc(domain):
 # ~~~~~ General Routines ~~~~~~~~~~~~~
 ##########################################################################
 
-def filter_field(field,frac=0.25):
+def filter_field(field,frac=0.5):
 
 	"""
 	Given a dedalus field object, set "frac" of the highest wave_number coefficients to zero
@@ -351,6 +351,7 @@ def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealia
 	ψ.differentiate('x',out=w); w.differentiate('z',out=wz);
 	u['g']  *= -1;
 
+
 	U0  = Field_to_Vec(domain,u,w);
 	#'''
 
@@ -580,6 +581,26 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.05, N_ITERS=100.,
 	#######################################################
 
 	logger.info("--> Complete <--\n\n")
+
+	# Create the de-aliaising matrix
+	NxCL = u['c'].shape[0]
+	NzCL = u['c'].shape[1]
+
+	elements0 = domain.elements(0)
+	elements1 = domain.elements(1)
+
+	DA = np.zeros((NxCL,NzCL))
+	Lx = abs(domain.bases[0].interval[0] - domain.bases[0].interval[1]);
+	Nx0 = 2*Nx//3;
+	Nz0 = 2*Nz//3;
+
+	for i in range(NxCL):
+		for j in range(NzCL):
+			if(np.abs(elements0[i,0]) < (2.*np.pi/Lx)*(Nx0//2) and elements1[0,j] < Nz0):
+				DA[i,j] = 1.
+
+	u['c']*=DA;
+	w['c']*=DA;			
 
 	return Field_to_Vec(domain,u ,w );
 
@@ -866,8 +887,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	# Create an evaluator for the nonlinear terms
 	def NLterm(u,ux,uz,	v,vx,vz,	ρx,ρz):
-		for f in [u,ux,uz, v,vx,vz, ρx,ρz]: # Before ifft keep only 2/3 of wavenumbers
-			f*=DA;
+
 		u_grid = transformInverse(u);
 		v_grid = transformInverse(v);
 
@@ -875,7 +895,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		NLv = -u_grid*transformInverse(vx) - v_grid*transformInverse(vz)
 		NLρ = -u_grid*transformInverse(ρx) - v_grid*transformInverse(ρz)
 
-		return transform(NLu),transform(NLv),transform(NLρ)
+		return DA*transform(NLu),DA*transform(NLv),DA*transform(NLρ)
 
 	# Function for taking derivatives in Fourier space
 	def derivativeX(vec):
@@ -889,7 +909,15 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	ρ['g']  = -0.5*special.erf(z/δ);
 	ρz['g'] = -np.exp(-(z/δ)**2)/(δ*np.sqrt(np.pi));
 
+	ρ['c'] *=DA;
+	ρz['c']*=DA;
+
 	Vec_to_Field(domain,u ,v ,U0[0]);
+	
+	u['c'] *=DA;
+	v['c']*=DA;
+
+
 	u.differentiate('z', out=uz)
 	v.differentiate('z', out=vz)
 
@@ -1446,9 +1474,9 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	# of the adjoint of the jacobian nonlinear term
 	# i.e. (∂F/∂x)^†*X^†
 	def NLtermAdj(vec1adj,vec2adj,vec3adj,statess):
-		vec1adj = transformAdjoint(vec1adj)
-		vec2adj = transformAdjoint(vec2adj)
-		vec3adj = transformAdjoint(vec3adj)
+		vec1adj = transformAdjoint(DA*vec1adj)
+		vec2adj = transformAdjoint(DA*vec2adj)
+		vec3adj = transformAdjoint(DA*vec3adj)
 		adju  = transformInverseAdjoint(-statess[1]*vec1adj - statess[4]*vec2adj - statess[7]*vec3adj)
 		adjux = transformInverseAdjoint(-statess[0]*vec1adj)
 		adjuz = transformInverseAdjoint(-statess[3]*vec1adj)
@@ -1457,9 +1485,7 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		adjvz = transformInverseAdjoint(-statess[3]*vec2adj)
 		adjρ = transformInverseAdjoint(0*vec2adj)
 		adjρx = transformInverseAdjoint(-statess[0]*vec3adj)
-		adjρz = transformInverseAdjoint(-statess[3]*vec3adj);
-		for f in [adju,adjux,adjuz,adjv,adjvx,adjvz,adjρ,adjρx,adjρz]:
-			f *= DA;
+		adjρz = transformInverseAdjoint(-statess[3]*vec3adj)
 		return adju,adjux,adjuz,adjv,adjvx,adjvz,adjρ,adjρx,adjρz
 
 
@@ -1544,23 +1570,19 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 		vDir = X_FWD_DICT['w_fwd'][:,:,snapshot_index]
 		ρDir = X_FWD_DICT['b_fwd'][:,:,snapshot_index]
 
-		uxDir = transformInverse(DA*derivativeX(uDir.copy()))
-		uzDir = transformInverse(DA*derivativeZ(uDir.copy()))
+		uxDir = transformInverse(derivativeX(uDir.copy()))
+		uzDir = transformInverse(derivativeZ(uDir.copy()))
 
-		vxDir = transformInverse(DA*derivativeX(vDir.copy()))
-		vzDir = transformInverse(DA*derivativeZ(vDir.copy()))
+		vxDir = transformInverse(derivativeX(vDir.copy()))
+		vzDir = transformInverse(derivativeZ(vDir.copy()))
 
-		ρxDir = transformInverse(DA*derivativeX(ρDir.copy()))
-		ρzDir = transformInverse(DA*derivativeZ(ρDir.copy()))
+		ρxDir = transformInverse(derivativeX(ρDir.copy()))
+		ρzDir = transformInverse(derivativeZ(ρDir.copy()))
 
-		uDirDA = transformInverse(DA*uDir.copy())
-		vDirDA = transformInverse(DA*vDir.copy())
-
-		# Forcing needs un-deliased version
 		uDir = transformInverse(uDir.copy())
 		vDir = transformInverse(vDir.copy())
 
-		states = [uDirDA,uxDir,uzDir,vDirDA,vxDir,vzDir,ρDir,ρxDir,ρzDir]
+		states = [uDir,uxDir,uzDir,vDir,vxDir,vzDir,ρDir,ρxDir,ρzDir]
 
 		snapshot_index -= 1
 
@@ -1681,12 +1703,15 @@ if __name__ == "__main__":
 
 
 	Re = 500.;  Ri = 0.05;
-	Nx = 255; Nz = 126; T_opt = 5; dt = 5e-03;
-	E_0 = 0.02
+	Nx = 256; Nz = 128; T_opt = 5; dt = 5e-03;
+	#Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
+	E_0 = 0.02;
 
 	N_ITERS = int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
+		Nx = 3*Nx//2
+		Nz = 3*Nz//2
 		dealias_scale = 1
 	else:
 		dealias_scale = 3/2
@@ -1701,21 +1726,15 @@ if __name__ == "__main__":
 	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, s,Prandtl,δ];
 	args_IP = [domain,None];
 
-
 	# Test the gradient
-	#from TestGrad import Adjoint_Gradient_Test
-	#_, dUx0  = Generate_IC(Nx,Nz,dealias_scale=dealias_scale);
+	from TestGrad import Adjoint_Gradient_Test
+	#_, dUx0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
 	#Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
 	#sys.exit()
 
-	LS = 'LS_armijo'; CG = False;
-	LS = 'LS_wolfe';  CG = False;
-	LS = 'LS_armijo'; CG = True;
-	LS = 'LS_wolfe';  CG = True;
-
 	# # Run the optimisation
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 10., LS = 'LS_armijo', CG = False, callback=File_Manips)
+	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 10, alpha_k = 200., LS = 'LS_armijo', CG = False, callback=File_Manips)
 	plot_optimisation(RESIDUAL,FUNCT);
 
 	####
