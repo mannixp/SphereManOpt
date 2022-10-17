@@ -660,6 +660,14 @@ def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	if filename != None:
 		IVP_FWD.load_state(filename,index=0)
+	'''
+	file = h5py.File("/Users/pmannix/Desktop/Nice_CASTOR/SphereManOpt_Proj/SphereManOpt/TestD_CG_A/CheckPoints_iter_199.h5","r")
+	print(file['scales/'].keys()); print(file['tasks/'].keys()) #useful commands
+	#(time,x,z)
+	#x = file['scales/x/1.5']; z = file['scales/z/1.5'];
+	u['g'] = file['tasks/u'][0,:,:]; 
+	w['g'] = file['tasks/w'][0,:,:];  
+	'''
 
 	from scipy.special import erf
 	z       = domain.grid(1,scales=domain.dealias);
@@ -953,6 +961,9 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	Ω_save = np.zeros( SHAPE );
 	ρ_save = np.zeros( SHAPE );
 
+	u_save = np.zeros( SHAPE );
+	w_save = np.zeros( SHAPE );
+
 	W = weightMatrixDisc(domain)
 
 	################################################################
@@ -989,12 +1000,25 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 			Ω_save[0,:,:]   = comm.allreduce(Ω_save[0,:,:],op=MPI.SUM)
 			ρ_save[0,:,:]   = comm.allreduce(ρ_save[0,:,:],op=MPI.SUM)
+
+			u_save[0,:,:][slices] = np.real(u['g']);
+			u_save[0,:,:]   = comm.allreduce(u_save[0,:,:],op=MPI.SUM)
+
+			w_save[0,:,:][slices] = np.real(v['g']);
+			w_save[0,:,:]   = comm.allreduce(w_save[0,:,:],op=MPI.SUM)
+
 		elif i == (N_ITERS-1):
 			Ω_save[1,:,:][slices] = np.real(transformInverse(vx) - uz['g']);
 			ρ_save[1,:,:][slices] = np.real(ρ['g']);
 
 			Ω_save[1,:,:]   = comm.allreduce(Ω_save[1,:,:],op=MPI.SUM)
 			ρ_save[1,:,:]   = comm.allreduce(ρ_save[1,:,:],op=MPI.SUM)
+
+			u_save[1,:,:][slices] = np.real(u['g']);
+			u_save[1,:,:]   = comm.allreduce(u_save[1,:,:],op=MPI.SUM)
+
+			w_save[1,:,:][slices] = np.real(v['g']);
+			w_save[1,:,:]   = comm.allreduce(w_save[1,:,:],op=MPI.SUM)
 		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 		#~~~~~~~~~~~ 3.b Create the rhs + solve lbvp ~~~~~~~~~~~~~~~~
@@ -1117,6 +1141,8 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 		CheckPt_tasks['vorticity']  = Ω_save;
 		CheckPt_tasks['b']  = ρ_save;
+		CheckPt_tasks['u']  = u_save;
+		CheckPt_tasks['w']  = w_save;
 		file2.close();
 
 
@@ -1684,7 +1710,7 @@ def File_Manips(k):
 
 
 Adjoint_type = "Discrete";
-# Adjoint_type = "Continuous";
+#Adjoint_type = "Continuous";
 
 if Adjoint_type == "Discrete":
 
@@ -1707,7 +1733,7 @@ if __name__ == "__main__":
 	#Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
 	E_0 = 0.02;
 
-	N_ITERS = int(T_opt/dt);
+	N_ITERS = 100; #int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
 		Nx = 3*Nx//2
@@ -1718,23 +1744,33 @@ if __name__ == "__main__":
 
 	#s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
 	s = 1; # (B) mix-norm minimisation (s = 1)
-
+	
 	domain, Ux0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
 
 	Prandtl=1.; δ  = 0.125
 	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, s,Prandtl,δ];
 	args_IP = [domain,None];
-
+	
 	# Test the gradient
 	from TestGrad import Adjoint_Gradient_Test
-	#_, dUx0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
-	#Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
-	#sys.exit()
+	_, dUx0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
+	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
+	sys.exit()
 
 	# # Run the optimisation
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 10, alpha_k = 200., LS = 'LS_armijo', CG = False, callback=File_Manips)
+	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 100., LS = 'LS_armijo', CG = False, callback=File_Manips)
+	'''
+	# Save the different errors 
+	DAL_file = h5py.File('DAL_PROGRESS.h5', 'r+')
+
+	print(DAL_file.keys())
+	# Problem Params
+	RESIDUAL = DAL_file['Residual'][()]
+	FUNCT    = DAL_file['Function_Value'][()] 
+	X_0 	 = DAL_file['X_opt'][0];
+	'''
 	plot_optimisation(RESIDUAL,FUNCT);
 
 	####
