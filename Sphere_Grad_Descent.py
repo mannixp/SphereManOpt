@@ -825,18 +825,6 @@ def Optimise_On_Multi_Sphere(X_0, M_0, f, myfprime, inner_prod, args_f = (), arg
                     f_h5.create_dataset(item[0], data = item[1])
                 f_h5.close()
             
-            '''
-            # Save the different errors 
-            DAL_file = h5py.File('DAL_PROGRESS.h5', 'w')
-            
-            # Problem Params
-            DAL_file['RESIDUAL'] = RESIDUAL;
-            DAL_file['FUNCT']    = FUNCT;
-            DAL_file['X_opt']    = X_k
-            
-            DAL_file.close();
-            '''    
-
         except:
             pass; 
               
@@ -880,14 +868,14 @@ def plot_optimisation(THETA,FUNCT):
     ax1.set_yticks(ax1.get_yticks()[::2])
 
     ax2.tick_params(axis='y', labelcolor='tab:blue',labelsize=26)
-    #ax2.set_ylabel(r'$r_k$',color='tab:blue',fontsize=26)
+    ax2.set_ylabel(r'$r_k$',color='tab:blue',fontsize=26)
     ax2.set_yticks(ax2.get_yticks()[::2])
-    ax2.set_ylim([1e-06,1])  
+    #ax2.set_ylim([1e-06,1])  
     ax2.legend(fontsize=18)
 
     plt.grid()
     plt.tight_layout(pad=1, w_pad=1.5)
-    fig.savefig("Mix_DISC_SD_A.pdf",dpi=1200);
+    fig.savefig("Mix_DISC_SD_W.pdf",dpi=1200);
     plt.show();
 
     return None;

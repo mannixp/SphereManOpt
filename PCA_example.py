@@ -1,6 +1,16 @@
 import numpy as np
 import sys
 
+'''
+Compute the largest principle component of a symetric matrix
+
+min 	J(X)  = −(1/2)*X^T M X,
+ X
+s.t.    ||X|| = 1, where M = M^T,
+
+to run this script:	python3 PCA_example.py
+'''
+
 def Hessian_Matrix(DIM):
 
 	"""
