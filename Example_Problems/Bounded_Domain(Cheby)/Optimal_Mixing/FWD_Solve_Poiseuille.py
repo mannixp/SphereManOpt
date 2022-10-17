@@ -1,7 +1,6 @@
 import sys,os;
-os.environ["OMP_NUM_THREADS"] = "1" # Improves performance apparently ????
-
-from mpi4py import MPI # Import this before numpy
+os.environ["OMP_NUM_THREADS"] = "1" 
+from mpi4py import MPI
 import numpy as np
 import h5py,logging
 
@@ -11,11 +10,32 @@ from dedalus.core import system
 from scipy.fftpack import fft, dct
 
 ts = de.timesteppers.SBDF1;
-#ts = de.timesteppers.MCNAB2
-#ts = de.timesteppers.RK222
-
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
+
+
+'''
+Solve the optimal mixing problem
+
+minimise  J(u, b) = 1/2 ⟨|∇^{−1} b(x, T )|^2⟩,
+
+s.t. 	(1/2)*⟨|u0|^2⟩ = E0,
+		
+		∂u/∂t + (U 0 · ∇)u + (u · ∇)[U 0 + u] − ∇p + Ribˆz − 1/Re ∇^2 u,
+
+		∂b/∂t + ([U 0 + u] · ∇)b − 1/Pe ∇^2 b, 
+		
+		∇ · u = 0
+
+in a slab geometry [x,z], where L_x = 4π uses a Fourier basis and 
+L_z = 2 uses a Chebyshev basis.
+
+
+To run this code :        mpiexec -np 4 python3 FWD_Solve_Poiseuille.py 
+& to plot the solution :  python3 plot_figure_Poiseuille.py
+'''
+
+
 
 ##########################################################################
 # ~~~~~ Direct and adjoint transforms ~~~~~~~~~~~~~
@@ -259,7 +279,6 @@ def Inner_Prod_Cnts(x,y,domain,rand_arg=None):
 
 	return Integrate_Field(domain, (dA*du) + (dB*dv) );
 
-# @ Calum add the discrete IP here
 def Inner_Prod_Discrete(x,y,domain,W=None):
 
 
@@ -279,7 +298,6 @@ def Inner_Prod_Discrete(x,y,domain,W=None):
 
 	return inner_prod/domain.hypervolume;
 
-# Works for U_vec,Uz_vec currently
 def Generate_IC(Nx,Nz, X_domain=(0.,4.*np.pi),Z_domain=(-1.,1.), E_0=0.02,dealias_scale=3/2,W=None):
 	"""
 	Generate a domain object and initial conditions from which the optimisation can proceed
@@ -374,7 +392,7 @@ def GEN_BUFFER(Nx,Nz, domain, N_ITERS):
 
 	# 2) If possible create a memory buffer as follows:
 
-	# The buffer created is a Python dictionary - X_FWD_DICT = {'b_x(x,t)','b_y(x,t)','b_z(x,t)'}
+	# The buffer created is a Python dictionary - X_FWD_DICT = {'u_x(x,t)','u_y(x,t)','b(x,t)'}
 	# Chosen so as to allow pass by reference & thus avoids copying
 	# All arrays to which these "keys" map must differ as we are otherwise mapping to the same memory!!
 
@@ -403,6 +421,7 @@ def GEN_BUFFER(Nx,Nz, domain, N_ITERS):
 
 	return {'u_fwd':u_SNAPS,'w_fwd':w_SNAPS,'b_fwd':b_SNAPS};
 
+
 ##########################################################################
 # ~~~~~ FWD Solvers ~~~~~~~~~~~~~
 ##########################################################################
@@ -410,14 +429,14 @@ def GEN_BUFFER(Nx,Nz, domain, N_ITERS):
 def FWD_Solve_Build_Lin(domain, Reynolds, Richardson, Prandtl=1.,Sim_Type = "Non_Linear"):
 
 	"""
-	Driver program for RBC, which builds the forward solver object with options:
+	Driver program for PF, which builds the forward solver object with options:
 
 	Inputs:
-	domain (dedalus object) returned by ??
-	flow paramaters Rayleigh & Prandtl numbers
+	domain (dedalus object)
+	flow paramaters Reynolds, Prandtl & Richardson
 
 	Returns:
-	Dedalus object to solve the 2D RBC in a slab geometry
+	Dedalus object to solve the 2D PF in a slab geometry
 
 	"""
 
@@ -504,12 +523,12 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.05, N_ITERS=100.,
 	Integrates the initial conditions to satisfy bcs,
 
 	Input:
-	-initial condition Bx0 & derivative d/dz(Bx0)
+	- initial condition U0 
 	- domain object
 	- default parameters Re,Ri,Pr,dt,N_ITERS
 
 	Returns:
-		field objects b,d/dz(b)
+		smoothe initial condition U0
 
 	"""
 	from dedalus.extras import flow_tools
@@ -563,21 +582,9 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.05, N_ITERS=100.,
 	logger.info("\n\n --> Timestepping to prepare IC's for FWD_Solve ");
 	#######################################################
 
-	#N_PRINTS = N_ITERS//2;
-	#flow = flow_tools.GlobalFlowProperty(IVP_FWD, cadence=1);
-	#flow.add_property("inv_Vol*integ( u**2 + w**2 )", name='Kinetic' );
-	#flow.add_property("inv_Vol*integ( b**2 	      )", name='buoyancy');
-
 	while IVP_FWD.ok:
 
 		IVP_FWD.step(dt);
-
-		#logger.info('Iterations: %i' %IVP_FWD.iteration)
-		#logger.info('Sim time:   %f' %IVP_FWD.sim_time )
-
-		#logger.info('Kinetic  (1/V)<U,U> = %e'%flow.volume_average('Kinetic') );
-		#logger.info('Buoynacy (1/V)<b,b> = %e'%flow.volume_average('buoyancy'));
-
 	#######################################################
 
 	logger.info("--> Complete <--\n\n")
@@ -607,18 +614,17 @@ def FWD_Solve_IVP_Prep(U0, domain, Reynolds=500., Richardson=0.05, N_ITERS=100.,
 def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, s = 0, Prandtl=1., δ  = 0.25, filename=None):
 
 	"""
-	Integrates the initial conditions FWD N_ITERS using RBC code
+	Integrates the initial conditions FWD N_ITERS using PF code
 
 	Input:
-	- initial condition Bx0 & derivative d/dz(Bx0)
+	- initial condition U0
 	- domain object
-	- default parameters Ra,Pr,dt (float)
+	- default parameters
 	- N_ITERS, N_SUB_ITERS (int)
 	- X_FWD_DICT (python dictnary buffer to store values)
-	- cost_function (str)
-
+	
 	Returns:
-		objective function J(Bx0)
+		objective function J(U0,b)
 
 	- Writes the following to disk:
 	1) FILE Scalar-data (every 10 iters): Kinetic Enegry, buoyancy etc
@@ -768,11 +774,10 @@ def FWD_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	return J_obj;
 
-# @ Calum add the discrete forward here - if neccessary ?
 def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, s = 0, Prandtl=1., δ  = 0.25, filename=None):
 
 	"""
-	Integrates the initial conditions FWD N_ITERS using RBC code
+	Integrates the initial conditions FWD N_ITERS using PF code
 
 	Input:
 	- initial condition U0 type list U0[0] = [u,v]
@@ -783,7 +788,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	- default parameters
 
 	Returns:
-		objective function J(U0)
+		objective function J(U0,b)
 
 	- Writes the following to disk:
 	1) FILE Scalar-data (every iters): Kinetic Enegry, buoyancy etc
@@ -1148,6 +1153,7 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	return cost;
 
+
 ##########################################################################
 # ~~~~~ ADJ Solvers  ~~~~~~~~~~~~~
 ##########################################################################
@@ -1155,18 +1161,18 @@ def FWD_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, s = 0, Prandtl=1., δ  = 0.25, Sim_Type = "Non_Linear"):
 
 	"""
-	Driver program for Rayleigh Benard code, which builds the adjoint solver object with options:
+	Driver program for Poiseuille flow code, which builds the adjoint solver object with options:
 
 	Inputs:
 	-domain (dedalus object)
-	-flow paramaters Rayleigh, Prandtl number (float)
+	-flow paramaters (float)
 	-dt (float)
 	-N_ITERS,N_SUB_ITERS(int)
 	- X_FWD_DICT (python dictnary buffer to store values)
 	- cost_function (str)
 
 	Returns:
-		Gradient of the objective function dJ(Bx0)/dBx0
+		Gradient of the objective function dJ(U0,b)/dU0
 	"""
 
 	# Dedalus Libraries
@@ -1311,8 +1317,22 @@ def ADJ_Solve_Cnts(    U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 	# Return the gradient δL_δu0
 	return [ Field_to_Vec(domain,u_adj ,w_adj) ];
 
-# @ Calum add the discrete forward here
 def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  dt=1e-04, s = 0, Prandtl=1., δ  = 0.25, Sim_Type = "Non_Linear"):
+
+	"""
+	Driver program for Poiseuille flow code, which builds the adjoint solver object with options:
+
+	Inputs:
+	-domain (dedalus object)
+	-flow paramaters (float)
+	-dt (float)
+	-N_ITERS,N_SUB_ITERS(int)
+	- X_FWD_DICT (python dictnary buffer to store values)
+	- cost_function (str)
+
+	Returns:
+		Gradient of the objective function dJ(U0,b)/dU0
+	"""
 
 	# Set to info level rather than the debug default
 	root = logging.root
@@ -1638,13 +1658,9 @@ def ADJ_Solve_Discrete(U0, domain, Reynolds, Richardson, N_ITERS, X_FWD_DICT,  d
 
 	return [ Field_to_Vec(domain,uadj ,vadj) ];
 
-#########################################################################
-# ~~~~~ Negative derivatives Solvers  ~~~~~~~~~~~~~
-##########################################################################
-
 def Norm_and_Inverse_Second_Derivative(rho,domain):
 	"""
-	Build a BVP that takes the final density field
+	Build a LBVP that takes the final density field
 	and returns its inverse first derivative or
 	inverse laplacian. We enforce only that the
 	solution must have zero-mean
@@ -1679,7 +1695,6 @@ def Norm_and_Inverse_Second_Derivative(rho,domain):
 
 	return Integrate_Field(domain,fx**2 + fz**2), Ψ;
 
-
 def File_Manips(k):
 
 	"""
@@ -1709,8 +1724,8 @@ def File_Manips(k):
 	return None;
 
 
-Adjoint_type = "Discrete";
-#Adjoint_type = "Continuous";
+#Adjoint_type = "Discrete";
+Adjoint_type = "Continuous";
 
 if Adjoint_type == "Discrete":
 
@@ -1729,11 +1744,10 @@ if __name__ == "__main__":
 
 
 	Re = 500.;  Ri = 0.05;
-	Nx = 256; Nz = 128; T_opt = 5; dt = 5e-03;
-	#Nx = 128; Nz = 64; T_opt = 5; dt = 5e-03;
+	Nx = 256;   Nz = 128; T_opt = 5; dt = 5e-03;
 	E_0 = 0.02;
 
-	N_ITERS = 100; #int(T_opt/dt);
+	N_ITERS = int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
 		Nx = 3*Nx//2
@@ -1745,6 +1759,7 @@ if __name__ == "__main__":
 	#s = 0; # (A) time-averaged-kinetic-energy maximisation (s = 0)
 	s = 1; # (B) mix-norm minimisation (s = 1)
 	
+	# 1) Generate an Initial condition
 	domain, Ux0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
 	X_FWD_DICT   = GEN_BUFFER( Nx,Nz,domain,N_ITERS);
 
@@ -1752,25 +1767,15 @@ if __name__ == "__main__":
 	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, s,Prandtl,δ];
 	args_IP = [domain,None];
 	
-	# Test the gradient
-	from TestGrad import Adjoint_Gradient_Test
-	_, dUx0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
-	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
-	sys.exit()
+	# 2) Test the gradient
+	#from TestGrad import Adjoint_Gradient_Test
+	#_, dUx0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
+	#Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
+	#sys.exit()
 
-	# # Run the optimisation
+	# 3) Optimise for u0 = [u(x,z,t=0),w(x,z,t=0)]
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 100., LS = 'LS_armijo', CG = False, callback=File_Manips)
-	'''
-	# Save the different errors 
-	DAL_file = h5py.File('DAL_PROGRESS.h5', 'r+')
-
-	print(DAL_file.keys())
-	# Problem Params
-	RESIDUAL = DAL_file['Residual'][()]
-	FUNCT    = DAL_file['Function_Value'][()] 
-	X_0 	 = DAL_file['X_opt'][0];
-	'''
+	RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0], [E_0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP, err_tol = 1e-06, max_iters = 200, alpha_k = 100., LS = 'LS_wolfe', CG = True, callback=File_Manips)
 	plot_optimisation(RESIDUAL,FUNCT);
 
 	####

@@ -114,7 +114,8 @@ def Plot_U_and_B(file_names,times,LEN,CAD,Just_B):
 			##########################################################################
 
 			fig, ax =  plt.subplots(2,1,figsize=(8,6));
-			plt.suptitle("B Field Iter=i%i Time=t%i"%(k,index) ); dpi = 1200;
+			#plt.suptitle("B Field Iter=i%i Time=t%i"%(k,index) ); 
+			dpi = 1200;
 
 			#------------------------------------ #------------------------------------
 			#ax1 = plt.subplot(221)
