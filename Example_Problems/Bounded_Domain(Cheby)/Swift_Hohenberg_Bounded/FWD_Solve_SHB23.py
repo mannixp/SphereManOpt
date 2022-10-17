@@ -1,7 +1,6 @@
 import sys,os,time;
-os.environ["OMP_NUM_THREADS"] = "1" # Improves performance apparently ????
-
-from mpi4py import MPI # Import this before numpy
+os.environ["OMP_NUM_THREADS"] = "1" 
+from mpi4py import MPI 
 import numpy as np
 import h5py,logging
 
@@ -9,9 +8,31 @@ from scipy.fftpack import fft, dct
 from dedalus.core import field
 from dedalus.core import system
 
+'''
+Solve the Swift-Hohenberg optimisation problem
+
+max J(u) = ∫_t ∫_x |u(x,t)|^2 dx dt,
+u_0
+
+s.t. ∫_z (1/2)*|u0|^2 dz = E0,
+	 ∂_t u + (1 + ∂_z^2)^2 u − au = 2u^2 − u^3,
+
+on a bounded domain Z = [-20,20] using a Chebyshev basis wth bcs
+
+∂_z(u) = ∂_zzz(u) =0 for z = -20
+
+	 u = ∂_zz(u)  =0 for z =  20
+
+To run this code :        mpiexec -np 1 python3 FWD_Solve_SHB23.py 
+& to plot the solution :  python3 plot_figure_SHB23.py
+'''
+
+
+
 ##########################################################################
 # ~~~~~ Chebyshev transforms and their discrete adjoints ~~~~~~~~~~~~~
 ##########################################################################
+
 def transform(x):
     b = dct(x,type=2)/len(x)
     b[0] *= 0.5
@@ -44,6 +65,20 @@ def transformInverseAdjoint(x):
     b[1::2] *= -1
 
     return b
+
+def weightMatrixDisc(domain):
+	
+	z = domain.grid(0, scales=1)
+	W = np.zeros(Npts);
+	for i in range(Npts):
+		if(i==0):
+			W[i] = 0.5*(z[1]-z[0]);
+		elif(i==Npts-1):
+			W[i] = 0.5*(z[Npts-1]-z[Npts-2]);
+		else:
+			W[i] = 0.5*(z[i]-z[i-1]) + 0.5*(z[i+1]-z[i]);
+
+	return W;
 
 ##########################################################################
 # ~~~~~ General Routines ~~~~~~~~~~~~~
@@ -94,33 +129,27 @@ def Vec_to_Field(domain,A, Bx0):
 
 	"""
 	Convert from: numpy 1D vector to field -
-	Takes a 1D array Bx0 and distributes it into fields A,B,C on
+	Takes a 1D array Bx0 and distributes it into fields A
 	num_procs = MPI.COMM_WORLD.size
 
 	Inputs:
 	- domain object
-	- GLOBALLY distributed dedalus fields A,B,C
+	- GLOBALLY distributed dedalus fields A
 	- Bx0 1D np.array
 
 	Returns:
 	- None
 	"""
 
-	# 1) Split the 1D array into 1D arrays A,B,C
-	#a1,a2,a3 = np.split(Bx0,3); #Passed in dealiased scale
+	# 1) Split the 1D array into 1D arrays A
 	gshape = tuple( domain.dist.grid_layout.global_shape(scales=domain.dealias) )
 	slices = domain.dist.grid_layout.slices(scales=domain.dealias)
-	#lshape = domain.dist.grid_layout.local_shape(scales=domain.dealias)
-	#slices = domain.dist.grid_layout.slices(scales=domain.dealias)
 
-	#for f in [A,B,C]:
 	A.set_scales(domain.dealias,keep_data=False);
 	A['g']=0.
 
-	# 2) Reshape and parse relevant portion into A,B,C
+	# 2) Reshape and parse relevant portion into A
 	A['g'] = Bx0.reshape( gshape )[slices]
-	#B['g'] = a2.reshape( gshape )[slices]
-	#C['g'] = a3.reshape( gshape )[slices]
 
 	return None;
 
@@ -157,10 +186,11 @@ def Inner_Prod_Cnts(x,y,domain,Type_xy='np_vector'):
 
 	return VOL*flow_red.global_max(SUM['g']); # Using this as it's what flow-tools does for volume average
 
-# @ Calum add the discrete forward here - if neccessary ?
-def Inner_Prod_Discrete(x,y,W,Vol):
-	ip = np.dot(x,W*y)/Vol
-	return ip
+def Inner_Prod_Discrete(x,y,domain,Type_xy='np_vector'):
+	
+	W=weightMatrixDisc(domain)
+
+	return np.dot(x,W*y)/domain.hypervolume;
 
 def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0,Type_IP = 'Field'):
 	"""
@@ -227,34 +257,13 @@ def Generate_IC(Npts, Z = (-20.,20.), M_0=1.0,Type_IP = 'Field'):
 	else:
 		filter_field(phi)
 
-	if Adjoint_type == "Discrete":
-		z = domain.grid(0, scales=1)
-		W = np.zeros(Npts);
-		for i in range(Npts):
-			if(i==0):
-				W[i] = 0.5*(z[1]-z[0]);
-			elif(i==Npts-1):
-				W[i] = 0.5*(z[Npts-1]-z[Npts-2]);
-			else:
-				W[i] = 0.5*(z[i]-z[i-1]) + 0.5*(z[i+1]-z[i]);
-		# 3) Normalise it, integrate it, Re-normalise
-		SUM      = Inner_Prod(phi['g'],phi['g'],W,domain.hypervolume);
+	phi['g'] = FWD_Solve_IVP_PREP([phi], domain)['g']
 
-		phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
-
-		phi['g'] = FWD_Solve_IVP_PREP([phi], domain)['g']
-
-		SUM      = Inner_Prod(phi['g'],phi['g'],W,domain.hypervolume);
-		phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
+	if Adjoint_type =='Discrete':
+		SUM  = Inner_Prod(phi['g'],phi['g'],domain,Type_IP );
 	else:
-		# 3) Normalise it, integrate it, Re-normalise
-		SUM      = Inner_Prod(phi,phi,domain,Type_IP );
-		phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
-
-		phi['g'] = FWD_Solve_IVP_PREP([phi], domain)['g']
-
-		SUM      = Inner_Prod(phi,phi,domain,Type_IP );
-		phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
+		SUM  = Inner_Prod(phi,phi,domain,Type_IP );	
+	phi['g'] = np.sqrt(M_0/SUM)*phi['g'];
 
 	return domain, Field_to_Vec(domain,phi);
 
@@ -303,7 +312,7 @@ def GEN_BUFFER(Npts, domain, N_SUB_ITERS):
 	A_SNAPS = np.zeros(SNAPS_SHAPE,dtype=np.float64);
 
 	return {'A_fwd':A_SNAPS};
-# ~~~~~~~~~~~~
+
 
 ##########################################################################
 # ~~~~~ FWD Solvers ~~~~~~~~~~~~~
@@ -352,8 +361,11 @@ def FWD_Solve_IVP_PREP(X_k, domain, dt=1e-02,  N_ITERS=100):
 	to clean the data and satisfy the bcs
 
 	Input:
+	X_k - list of a numpy vector initial condition in grid-space
+	domain
 
 	Returns:
+		X_k - smoothed initial condition in grid-space
 
 	"""
 	from dedalus.extras import flow_tools
@@ -387,16 +399,20 @@ def FWD_Solve_IVP_Cnts(X_k, domain, X_FWD_DICT, N_ITERS, dt =1e-02,filename=None
 
 	"""
 	Integrates the initial condition X(t=0) = Ux0 -> U(x,T);
-	using the induction equation,
+	using the SH23 equation,
 
 	Input:
-
+	X_k - list of a numpy vector initial condition in grid-space
+	domain (dedalus object)
+	dt - float numerical integration time-step
+	N_ITERS,N_SUB_ITERS - int number of iterations to complete
+	X_FWD_DICT - fWD checkpoints buffer
+	
 	Returns:
-		objective function J(u)
-
+		time integrated kinetic energy
+	
 	- Writes the following to disk:
-	1) FILE Scalar-data (every 20 iters): Magnetic Enegry, etc.
-
+	1) FILE Scalar-data (every 20 iters): kinetic Enegry, etc. 
 	2) FILE Checkpoints (every N_SUB_ITERS): full system state in grid space
 
 	"""
@@ -506,8 +522,28 @@ def FWD_Solve_IVP_Cnts(X_k, domain, X_FWD_DICT, N_ITERS, dt =1e-02,filename=None
 
 	return (-1.)*J_TRAP;
 
-# @ Calum add the discrete forward here - if neccessary ?
-def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename=None):
+def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS, dt =1e-02,filename=None):
+	
+	"""
+	Integrates the initial condition X(t=0) = Ux0 -> U(x,T);
+	using the SH23 equation,
+
+	Input:
+	X_k - list of a numpy vector initial condition in grid-space
+	domain (dedalus object)
+	dt - float numerical integration time-step
+	N_ITERS,N_SUB_ITERS - int number of iterations to complete
+	X_FWD_DICT - fWD checkpoints buffer
+	
+	Returns:
+		time integrated kinetic energy
+	
+	- Writes the following to disk:
+	1) FILE Scalar-data (every 20 iters): kinetic Enegry, etc. 
+	2) FILE Checkpoints (every N_SUB_ITERS): full system state in grid space
+
+	"""
+
 	from dedalus.extras import flow_tools
 	from dedalus.tools  import post
 	import dedalus.public as de
@@ -523,6 +559,7 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 	# initialize the problem
 	#######################################################
 
+	# Linear Part MX_t = LX
 	problem = de.LBVP(domain, variables=['u', 'uz', 'uzz','uzzz'])
 	problem.parameters['a']  = -0.1;
 	problem.parameters['inv_Vol'] = 1./domain.hypervolume;
@@ -537,44 +574,20 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 
 	problem.add_bc("right(u)   = 0");
 	problem.add_bc("right(uzz) = 0");
-	solver = problem.build_solver()
-	############### Build the adjoint matrices ###############
-	solver.pencil_matsolvers_transposed = {}
-	for p in solver.pencils:
-		solver.pencil_matsolvers_transposed[p] = solver.matsolver(np.conj(p.L_exp).T, solver)
-	##########################################################
-	IVP_FWD = problem.build_solver();
 
-	#######################################################
-	# FIX - analysis tasks
-	#######################################################
-	file = h5py.File('scalar_data_s1.h5', 'w');
-
-	scalars_tasks  = file.create_group('tasks');
-	scalars_scales = file.create_group('scales');
-	sim_time = [];
-	Kinetic_energy = [];
-
-
-	file = h5py.File('CheckPoints_s1.h5', 'w');
-
-	CheckPt_tasks  = file.create_group('tasks');
-	CheckPt_scales = file.create_group('scales');
-	z_save = CheckPt_scales.create_group('z');
-	z_save['1.5'] = domain.grid(0, scales=1);
-	u_save = np.zeros( (2,IVP_FWD.state['u']['g'].shape[0]) );
-
-	#######################################################
-
-
+	# Non-linear part F(x)
 	def NLterm(vec):
 		a = transformInverse(vec)
 		a = 2.*(a**2) - a**3
 		a = transform(a)
 		# Dealias
 		a[int(len(a)//2):] = 0
-		return a
-	rhsD  = field.Field(domain, name='rhsD')
+		return a;
+
+	IVP_FWD = problem.build_solver();
+	##########################################################
+
+	rhsD   = field.Field(domain, name='rhsD')
 	rhsD1  = field.Field(domain, name='rhsD1')
 	rhsD2  = field.Field(domain, name='rhsD2')
 	rhsD3  = field.Field(domain, name='rhsD3')
@@ -586,52 +599,75 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 	equ_rhs = system.FieldSystem(fields)
 
 	#######################################################
+	# Analysis tasks
+	#######################################################
+	file = h5py.File('scalar_data_s1.h5', 'w');
+
+	scalars_tasks  = file.create_group('tasks');
+	scalars_scales = file.create_group('scales');
+	sim_time = [];
+	Kinetic_energy = [];
+
+	file = h5py.File('CheckPoints_s1.h5', 'w');
+
+	CheckPt_tasks  = file.create_group('tasks');
+	CheckPt_scales = file.create_group('scales');
+	z_save = CheckPt_scales.create_group('z');
+	z_save['1.5'] = domain.grid(0, scales=1);
+	u_save = np.zeros( (2,IVP_FWD.state['u']['g'].shape[0]) );
+
+	#######################################################
 	# evolution parameters
 	######################################################
 
-	IVP_FWD.stop_iteration = N_ITERS+1; # Total Foward Iters + 1, to grab last point
-
+	# Set the initial condition
 	IVP_FWD.state['u']['c'] = transform(X_k[0])
-	snapshot_index = 0
 
-	X_FWD_DICT['A_fwd'][:,snapshot_index] = IVP_FWD.state['u']['g'][:];#.copy()
-	snapshot_index+=1;
-	cost = np.linalg.norm(M*IVP_FWD.state['u']['g'])**2*dt
+	snapshot_index = 0
 	for i in range(N_ITERS):
 		
-		# Pass data to h5 file
+		# 1) Pass data to h5 file
 		#~~~~~~~~~~~	
-		Kinetic_energy.append( np.linalg.norm(M*IVP_FWD.state['u']['g'])**2 );
-		sim_time.append(i*dt);
-
 		if i == 0:
 			u_save[0,:] = IVP_FWD.state['u']['g'];
+
+			X_FWD_DICT['A_fwd'][:,snapshot_index] = IVP_FWD.state['u']['g'][:];
+			snapshot_index+=1;
+			cost = Inner_Prod(IVP_FWD.state['u']['g'],IVP_FWD.state['u']['g'],domain)*dt
 		elif i == (N_ITERS-1):
+			
 			u_save[1,:] = IVP_FWD.state['u']['g'];	
+
+		Kinetic_energy.append( Inner_Prod(IVP_FWD.state['u']['g'],IVP_FWD.state['u']['g'],domain) );
+		sim_time.append(i*dt);	
 		#~~~~~~~~~~~	
 
-		# Form rhs
-		rhsD['c'] = IVP_FWD.state['u']['c']/dt + NLterm(IVP_FWD.state['u']['c'])
+		# 2)   Form RHS of eqn (A.2) 
+		# i.e.  B =        c_1*F(X^{i-1})           - (a_1*M + b_1*L)*X^{i-1}
+		rhsD['c'] = NLterm(IVP_FWD.state['u']['c']) +   IVP_FWD.state['u']['c']/dt 
+		
 		######################## Solve the LBVP ########################
+		## P^L(a_1*M + b_1*L)*(P^R)*Y^i = P^L*B
+		## where Y^i = P^{-R}*X^i
 		equ_rhs.gather()
 		for p in IVP_FWD.pencils:
-			b = p.pre_left @ equ_rhs.get_pencil(p)
-			x = IVP_FWD.pencil_matsolvers[p].solve(b)
+			b = p.pre_left @ equ_rhs.get_pencil(p)     # Left pre-condition RHS P^L*B
+			x = IVP_FWD.pencil_matsolvers[p].solve(b)  # Invert for Y^i
 			if p.pre_right is not None:
 				x = p.pre_right @ x
-			IVP_FWD.state.set_pencil(p, x)
+			IVP_FWD.state.set_pencil(p, x)			   # Recover X^i = P^R*Y^i
 			IVP_FWD.state.scatter()
 		################################################################
-		X_FWD_DICT['A_fwd'][:,snapshot_index] = IVP_FWD.state['u']['g'][:];#.copy()
+		
+		# 3) Compute the objective function
+		X_FWD_DICT['A_fwd'][:,snapshot_index] = IVP_FWD.state['u']['g'][:];
 		snapshot_index+=1;
-		cost += np.linalg.norm(M*IVP_FWD.state['u']['g'])**2*dt
+		cost += Inner_Prod(IVP_FWD.state['u']['g'],IVP_FWD.state['u']['g'],domain)*dt
 	
 	# Save the files
 	scalars_tasks['Kinetic energy']  = Kinetic_energy
 	scalars_scales['sim_time'] = sim_time
-
 	CheckPt_tasks['u']  = u_save;
-	
 	file.close(); 
 
 	# Set to info level rather than the debug default
@@ -639,7 +675,8 @@ def FWD_Solve_IVP_Discrete(X_k,domain, X_FWD_DICT, N_ITERS,M, dt =1e-02,filename
 		#h.setLevel("WARNING");
 		h.setLevel("INFO");
 
-	return (-1.)*cost/domain.hypervolume;
+	return (-1.)*cost;
+
 
 ##########################################################################
 # ~~~~~ ADJ Solvers + Comptability Condition ~~~~~~~~~~~~~
@@ -649,10 +686,14 @@ def ADJ_Solve_IVP_Cnts(X_k, domain,  X_FWD_DICT, N_ITERS, dt=1e-02, filename=Non
 	"""
 	Solve the adjoint of the SH23 equation in a bounded domain:
 
-	Inputs:
-
+	Input:
+	domain (dedalus object)
+	dt - float numerical integration time-step
+	N_ITERS,N_SUB_ITERS - int number of iterations to complete
+	X_FWD_DICT - fWD checkpoints buffer
+	
 	Returns:
-
+		[dJ/du0] gradient of the time integrated kinetic energy
 	"""
 
 	# Dedalus Libraries
@@ -752,8 +793,20 @@ def ADJ_Solve_IVP_Cnts(X_k, domain,  X_FWD_DICT, N_ITERS, dt=1e-02, filename=Non
 
 	return [Ux0];
 
-# @ Calum add the discrete forward here
-def ADJ_Solve_IVP_Discrete(X_k, domain,  X_FWD_DICT, N_ITERS,M, dt=1e-02, filename=None):
+def ADJ_Solve_IVP_Discrete(X_k, domain,  X_FWD_DICT, N_ITERS, dt=1e-02, filename=None):
+
+	"""
+	Solve the adjoint of the SH23 equation in a bounded domain:
+
+	Input:
+	domain (dedalus object)
+	dt - float numerical integration time-step
+	N_ITERS,N_SUB_ITERS - int number of iterations to complete
+	X_FWD_DICT - fWD checkpoints buffer
+	
+	Returns:
+		[dJ/du0] gradient of the time integrated kinetic energy
+	"""
 
 	# Dedalus Libraries
 	import dedalus.public as de
@@ -765,31 +818,11 @@ def ADJ_Solve_IVP_Discrete(X_k, domain,  X_FWD_DICT, N_ITERS,M, dt=1e-02, filena
 		#h.setLevel("INFO"); #h.setLevel("DEBUG")
 	logger = logging.getLogger(__name__)
 
-	W = M**2
-
-	uadj  = field.Field(domain, name='uadj')
-	uzadj  = field.Field(domain, name='uzadj')
-	uzzadj  = field.Field(domain, name='uzzadj')
-	uzzzadj  = field.Field(domain, name='uzzzadj')
-	fields = [uadj,uzadj ,uzzadj ,uzzzadj]
-	state_adj = system.FieldSystem(fields)
-
-	rhsA  = field.Field(domain, name='rhsA')
-	rhsA1  = field.Field(domain, name='rhsA1')
-	rhsA2  = field.Field(domain, name='rhsA2')
-	rhsA3  = field.Field(domain, name='rhsA3')
-	rhsA4  = field.Field(domain, name='rhsA4')
-	rhsA5  = field.Field(domain, name='rhsA5')
-	rhsA6  = field.Field(domain, name='rhsA6')
-	rhsA7  = field.Field(domain, name='rhsA7')
-	fields = [rhsA,rhsA1,rhsA2,rhsA3,rhsA4,rhsA5,rhsA6,rhsA7]
-	equ_adj = system.FieldSystem(fields)
 	#######################################################
 	# initialize the problem
 	#######################################################
 
-	logger.info("--> Adding Equations");
-
+	# Linear Part MX_t = LX
 	problem = de.LBVP(domain, variables=['u', 'uz', 'uzz','uzzz'])
 	problem.parameters['a']  = -0.1;
 	problem.parameters['dt'] = dt
@@ -803,14 +836,8 @@ def ADJ_Solve_IVP_Discrete(X_k, domain,  X_FWD_DICT, N_ITERS,M, dt=1e-02, filena
 
 	problem.add_bc("right(u)   = 0");
 	problem.add_bc("right(uzz) = 0");
-	solver = problem.build_solver()
-	############### Build the adjoint matrices ###############
-	solver.pencil_matsolvers_transposed = {}
-	for p in solver.pencils:
-		solver.pencil_matsolvers_transposed[p] = solver.matsolver(np.conj(p.L_exp).T, solver)
-	##########################################################
-	IVP_ADJ = problem.build_solver();
 
+	# Adjoint of Jacobian (∂F/∂X)^H * q
 	def NLtermAdj(vec,vecb):
 		a = vec.copy()
 		# Dealias
@@ -820,38 +847,76 @@ def ADJ_Solve_IVP_Discrete(X_k, domain,  X_FWD_DICT, N_ITERS,M, dt=1e-02, filena
 		a = transformInverseAdjoint(a)
 		return a
 
-	#######################################################
-	logger.info("\n\n --> Timestepping ADJ_Solve ");
-	#######################################################
-	base_state = X_FWD_DICT['A_fwd'][:,-1]
+	
+	IVP_ADJ = problem.build_solver();
 
-	uadj['c'] = transformInverseAdjoint(X_k[0]*0) + 2*transformInverseAdjoint(W*base_state)*dt
+	############### Build the adjoint matrices ###############
+	# # Adjoint of LHS Matrix 
+	# L^H = [P^L*(a_0*M + b_0*L)*P^R]^H
+	# #
+	IVP_ADJ.pencil_matsolvers_transposed = {}
+	for p in IVP_ADJ.pencils:
+		IVP_ADJ.pencil_matsolvers_transposed[p] = IVP_ADJ.matsolver(np.conj(p.L_exp).T, IVP_ADJ)
+	##########################################################
+	
+
+	uadj  = field.Field(domain, name='uadj')
+	uzadj  = field.Field(domain, name='uzadj')
+	uzzadj  = field.Field(domain, name='uzzadj')
+	uzzzadj  = field.Field(domain, name='uzzzadj')
+	fields    = [uadj,uzadj ,uzzadj ,uzzzadj]
+	state_adj = system.FieldSystem(fields)
+
+	rhsA   = field.Field(domain, name='rhsA')
+	rhsA1  = field.Field(domain, name='rhsA1')
+	rhsA2  = field.Field(domain, name='rhsA2')
+	rhsA3  = field.Field(domain, name='rhsA3')
+	rhsA4  = field.Field(domain, name='rhsA4')
+	rhsA5  = field.Field(domain, name='rhsA5')
+	rhsA6  = field.Field(domain, name='rhsA6')
+	rhsA7  = field.Field(domain, name='rhsA7')
+	fields = [rhsA,rhsA1,rhsA2,rhsA3,rhsA4,rhsA5,rhsA6,rhsA7]
+	equ_adj = system.FieldSystem(fields)
+		
+
+	# Set the initial conditions/compatibility condition
+
+	W = weightMatrixDisc(domain); # Inner product weight matrix
+	
+	base_state = X_FWD_DICT['A_fwd'][:,-1]
+	uadj['c']  = transformInverseAdjoint(X_k[0]*0) + 2*transformInverseAdjoint(W*base_state)*dt; # Form RHS of (1.4a)
+	
 	for i in range(N_ITERS):
+		
 		######################## Solve the adjoint LBVP ########################
+		## L^H*Y^i = (P^R)^H*(∂ƒ^H/∂x)*(P^L)^H*q^i
+		## where Y^i = P^{-R}*q^i
 		state_adj.gather()
 		# Solve system for each pencil, updating state
-		for p in solver.pencils:
-			if p.pre_right is not None:
+		for p in IVP_ADJ.pencils:
+			if p.pre_right is not None:								# Left pre-condition RHS by (P^R)^H
 				vec = state_adj.get_pencil(p)
 				b = np.conj(p.pre_right).T @ vec
 			else:
 				b = state_adj.get_pencil(p)
-			x = solver.pencil_matsolvers_transposed[p].solve(b)
-			x = np.conj(p.pre_left).T @ x
+			x = IVP_ADJ.pencil_matsolvers_transposed[p].solve(b); 	# Invert for Y^i
+			x = np.conj(p.pre_left).T @ x;							# Recover q^i = (P^L)^H*Y^i
 			equ_adj.set_pencil(p, x)
 			equ_adj.scatter()
 		#########################################################################
-		uadj['c'] = rhsA['c'].copy()
-		base_state = X_FWD_DICT['A_fwd'][:,-i-2]
-		uadj['c'] = uadj['c']/dt + NLtermAdj(uadj['c'],base_state) + 2*transformInverseAdjoint(W*base_state)*dt
-	Ux0 = transformAdjoint(uadj['c'])
+		
 
-	logger.info("\n\n--> Complete <--\n")
+		base_state = X_FWD_DICT['A_fwd'][:,-i-2];
+		uadj['c']  = rhsA['c'].copy();
+		uadj['c']  = uadj['c']/dt + NLtermAdj(uadj['c'],base_state) + 2*transformInverseAdjoint(W*base_state)*dt; # Form RHS of (1.4b-c)
+	
+	Ux0 = transformAdjoint(uadj['c']);
 
 	# Set to info level rather than the debug default
 	for h in root.handlers:
 		#h.setLevel("WARNING");
 		h.setLevel("INFO");
+
 	return [-Ux0/W];
 
 def File_Manips(k):
@@ -880,12 +945,8 @@ def File_Manips(k):
 		# B) Contains all state data
 		shutil.copyfile('CheckPoints_s1.h5','CheckPoints_iter_%i.h5'%k);	
 
-	# 3) Remove Surplus files at the end
-	#shutil.rmtree('snapshots');
-	#shutil.rmtree('Adjoint_CheckPoints');
-	#shutil.rmtree('Checkpoints');
-
 	return None;
+
 
 Adjoint_type = "Discrete";
 #Adjoint_type = "Continuous";
@@ -913,40 +974,25 @@ if __name__ == "__main__":
 	if Adjoint_type == "Discrete":
 		dealias = 2
 		Npts *= dealias
+
 	Z_Domain = (-L_z/2.,L_z/2.);
 	N_ITERS  = int(20./dt);
 
 	domain, X0  = Generate_IC(Npts,Z_Domain,M_0);
 	X_FWD_DICT  = GEN_BUFFER(Npts, domain, N_ITERS)
 
-	if Adjoint_type == "Discrete":
-		# Very simple weight matrix
-		z = domain.grid(0, scales=1)
-		W = np.zeros(Npts);
-		for i in range(Npts):
-			if(i==0):
-				W[i] = 0.5*(z[1]-z[0]);
-			elif(i==Npts-1):
-				W[i] = 0.5*(z[Npts-1]-z[Npts-2]);
-			else:
-				W[i] = 0.5*(z[i]-z[i-1]) + 0.5*(z[i+1]-z[i]);
-		args_IP = (W,L_z);
-		M = np.sqrt(W);
-		args_f  = (domain, X_FWD_DICT, N_ITERS,M);
-	else:
-		args_IP = (domain,'np_vector');
-		args_f  = (domain, X_FWD_DICT, N_ITERS);
+	args_IP = (domain,'np_vector');
+	args_f  = (domain, X_FWD_DICT, N_ITERS);
 
-	sys.path.insert(0,'/Users/pmannix/Desktop/Nice_CASTOR')
-		
+	sys.path.insert(0,'../../../')	
+	
 	# 1) Test the Gradient
 	from TestGrad import Adjoint_Gradient_Test
 	_, dX0  = Generate_IC(Npts,Z_Domain,M_0);
-	Adjoint_Gradient_Test([X0],[dX0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP)
-	sys.exit()
+	Adjoint_Gradient_Test([X0],[dX0], FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
+
 
 	# 2) Call the optimisation
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X0],[M_0],FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,err_tol = 1e-06,max_iters=50,LS = 'LS_armijo', CG = False,callback=File_Manips)
-	
+	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X0],[M_0],FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,err_tol = 1e-05,max_iters=50,LS = 'LS_wolfe', CG = True,callback=File_Manips)
 	plot_optimisation(RESIDUAL,FUNCT);
