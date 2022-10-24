@@ -6,7 +6,7 @@ $\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \
 
 is the spherical manifold of radius $E$. 
 
-### Calling the optmiser
+### Calling the optimiser
 
 Given a (python) list of (numpy) vectors $X_i$
 
