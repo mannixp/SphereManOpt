@@ -40,6 +40,8 @@ A routine for checking the gradient
 
 is also provided, where $\langle \boldsymbol{X}, \boldsymbol{X} \rangle = \langle \boldsymbol{dX}, \boldsymbol{dX} \rangle =1$ such that `epsilon` controls the relative size of the peturbation $\boldsymbol{dX}$. 
 
+# Example problems
+
 ### Principle component analysis
 
 Optimisation code to search the largest principle component of a symmetric matrix M. The parameter `DIM` controls the dimension of the random symmetric matrix generated. Executing this script with 
@@ -47,8 +49,6 @@ Optimisation code to search the largest principle component of a symmetric matri
 `python3 PCA_example.py`
 
 finds the principle component, using steepest-descent (SD) and conjugate-gradient (CG) methods, plots the residual error of each and compares `X_opt` with the solution found using numpy's built-in eigen-vector solver.
-
-# Example problems
 
 The following examples require an Anaconda environment with the parallelised spectral code [Dedalus installed](https://dedalus-project.org). Having installed Dedalus and activated the relevant conda environment both examples can be ran by executing the following commands. In both examples the option
 
@@ -60,7 +60,7 @@ allows one to select the gradient approximation used, while uncommenting and run
 
 ### Swift-Hohenberg equation
 
-Optimisation code to search the *minimal perturbation* triggering transition to a localised state of the Swift-Hohenberg equation on a 1D periodic domain following [(D. Lecoanet, Phys. Rev. E., 2018)](https://link.aps.org/doi/10.1103/PhysRevE.97.012212). The default arguments contained in FWD_Solve_SH23.py are
+Optimisation code to search the *minimal perturbation* triggering transition to a localised state of the Swift-Hohenberg equation on a 1D periodic domain following [(D. Lecoanet & R.R. Kerswell, Phys. Rev. E., 2018)](https://link.aps.org/doi/10.1103/PhysRevE.97.012212). The default arguments contained in FWD_Solve_SH23.py are
 
 `T=50, Npts = 256, dt = 0.1, M_0 = 0.0725`
 
@@ -99,7 +99,7 @@ optimises the perturbation using 1 core and plots the resulting solution.
 
 ### Optimal mixing
 
-Optimisation code to search the optimal velocity perturbation in a 2D rectangular box following [(F. Marcotte, JFM, 2018)](https://doi.org/10.1017/jfm.2018.565). The default arguments contained in FWD_Solve_PBox_IND_MHD.py are
+Optimisation code to search the optimal velocity perturbation in a 2D rectangular box following [(F. Marcotte & C.P. Caulfield, JFM, 2018)](https://doi.org/10.1017/jfm.2018.565). The default arguments contained in FWD_Solve_PBox_IND_MHD.py are
 
 `Re=500,Pr=1,Ri=0.05,  T=5,E_0=0.02,  Nx,Nz = 256,128, dt=1e-03`
 
@@ -111,4 +111,4 @@ optimises both the velocity and magnetic fields using 4 cores and plots the resu
 
 ## Acknowledgements
 
-P. M. M. and F. M. acknowledge support from the French program “T-ERC” from Agence Nationale de la Recherche (ANR) (Grant No. ANR-19-ERC7-0008). This work was also supported by the French government, through the UCAJEDI Investments in the Future project managed by the ANR under reference number ANR-15-IDEX-0001. C.S.S. acknowledges partial support from a grant from the Simons Foundation (Grant No. 662962, GF). He would also like to acknowledge support of funding from the European Union Horizon 2020 research and innovation programme (grant agreement no. D5S-DLV-786780). The authors are grateful to the OPAL infrastructure from Universit\'e C\^ote d’Azur, Universit\'e C\^ote d’Azur’s Center for High-Performance Computing and GENCI computer facilities for providing resources and support.
+P. M. M. and F. M. acknowledge support from the French program “T-ERC” from Agence Nationale de la Recherche (ANR) (Grant No. ANR-19-ERC7-0008). This work was also supported by the French government, through the UCAJEDI Investments in the Future project managed by the ANR under reference number ANR-15-IDEX-0001. C.S.S. acknowledges partial support from a grant from the Simons Foundation (Grant No. 662962, GF). He would also like to acknowledge support of funding from the European Union Horizon 2020 research and innovation programme (grant agreement no. D5S-DLV-786780). The authors are grateful to the OPAL infrastructure from Université Côte-d'Azur, Université Côte-d'Azur’s Center for High-Performance Computing and GENCI computer facilities for providing resources and support.
