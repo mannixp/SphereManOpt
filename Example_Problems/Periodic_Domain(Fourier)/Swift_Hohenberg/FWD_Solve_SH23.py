@@ -750,7 +750,7 @@ def File_Manips(k):
 if __name__ == "__main__":
 
 	E_0 = 0.0725;
-	dt  = 0.1;
+	dt  = 0.05;
 	N_ITERS     = int(50./dt);
 	N_SUB_ITERS = N_ITERS//1;
 
@@ -770,32 +770,32 @@ if __name__ == "__main__":
 
 
 	# 2) Test the gradient
+	#'''
 	from TestGrad import Adjoint_Gradient_Test
 	domain, X_0  = Generate_IC(1.);
 	_     , dX_0 = Generate_IC(1.);
 	Adjoint_Gradient_Test(X_0,dX_0,FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,epsilon=1e-04)
 	sys.exit()
-
+	#'''
 
 	# 3) Optimise the initial perturbation u(x,t=0)
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
-	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[E_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,max_iters=100,LS = 'LS_wolfe', CG = True,callback=File_Manips)
+	RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[E_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,max_iters=200,alpha_k = np.pi,LS = 'LS_wolfe', CG = True,callback=File_Manips)
 	plot_optimisation(RESIDUAL,FUNCT);
 
 	
-
 	'''
 	# Save the different errors 
-	DAL_file = h5py.File('/Users/pmannix/Desktop/Nice_CASTOR/Discrete_Adjoint_SH23/LS_TEST_MP_0.0725_DISC_SD/DAL_PROGRESS.h5', 'r+')
+	DAL_file = h5py.File('DAL_PROGRESS.h5', 'r+')
 
 	# Problem Params
-	RESIDUAL = DAL_file['RESIDUAL'][()];
-	FUNCT    = DAL_file['FUNCT'][()]; 
+	RESIDUAL = DAL_file['Residual'][()];
+	FUNCT    = DAL_file['Function_Value'][()]; 
 	X_0 	 = DAL_file['X_opt'][0];
 
-	print(FUNCT)
-	
-	#DAL_file.close();    
-	plot_optimisation([RESIDUAL],FUNCT);
+	DAL_file.close();
+
+	#RESIDUAL, FUNCT, X_opt = Optimise_On_Multi_Sphere([X_0],[E_0],FWD_Solve_IVP_Lin,ADJ_Solve_IVP_Lin,Inner_Prod,args_f,args_IP,max_iters=200,LS = 'LS_armijo', CG = False,callback=File_Manips)
+	plot_optimisation(RESIDUAL,FUNCT)
 	'''
 	###
