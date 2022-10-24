@@ -6,7 +6,7 @@ Compute the largest principle component of a symetric matrix
 
 min 	J(X)  = −(1/2)*X^T M X,
  X
-s.t.    ||X|| = 1, where M = M^T, x^T M x >0
+s.t.    ||X|| = 1, where M = M^T,
 
 to run this script:	python3 PCA_example.py
 '''
@@ -20,15 +20,28 @@ def Hessian_Matrix(DIM):
 	Output: M   numpy matrix
 	"""
 
-	
-	PD=-1;
-	while PD <= 0: 
+	M = np.random.randn(DIM,DIM); I  = np.eye(DIM);
+
+	M = 0.5*(M + M.T); # Make it symmetric
+
+	'''
+	x = np.random.rand(DIM);
+	PD = np.dot(x, np.matmul(M,x) );
+	print("PD = ",PD,"\n");
+
+	# While it's not PD add to diagonal
+	fac = 0.1; count = 0;
+	while PD < 0: 
 		
-		M = np.random.randn(DIM,DIM); 
-		M = 0.5*(M + M.T); # Make it symmetric
+		count+=1;
+		M = M + fac*I;
 
 		x = np.random.rand(DIM);
 		PD = np.dot(x, np.matmul(M,x) );
+		print("PD = ",PD,"\n");
+
+	print("Symmetric postive definite matrix generated after count = %i.. \n"%count)	
+	'''
 
 	return M;
 
@@ -110,7 +123,7 @@ def Vector_Inner_Product(f,g,*args_IP):
 
 if __name__ == "__main__":
 
-	DIM = 5; 
+	DIM = 10; 
 	M 	= Hessian_Matrix(DIM);
 	X_0 = np.random.rand(DIM); 
 	M_0 = 1.;
@@ -140,22 +153,14 @@ if __name__ == "__main__":
 	print("Error of SD = ",LA.norm(abs(v)-abs(x_opt_SD[0]),2));
 	plot_optimisation(RESIDUAL_SD,FUNCT_SD);
 
-	# 2.b) Check for linear descent inequality
-	kappa = LA.cond(M)
-
-	x = np.arange(0,len(FUNCT_SD),1);
-	f = (np.roll(FUNCT_SD,-1) - np.ones(len(x))*FUNCT_SD[-1])/(FUNCT_SD - np.ones(len(x))*FUNCT_SD[-1]);
-	f = f[0:-2];
-	
-	print(f)
-
-	print('r^2 = %e '%np.sqrt(np.mean(f[-10:-5])),"< r*^2 =%e < 1"%((kappa-1.)/(kappa + 1.)),'\n');
-
 	# 3) Calculate the solution via conjugate-gradient (CG)
 	
 	RESIDUAL_CG, FUNCT_CG, x_opt_CG = Optimise_On_Multi_Sphere([X_0],[M_0],Objective,Gradient,Vector_Inner_Product,args_f,args_IP,LS = 'LS_wolfe', CG = True);
 	
 	print("Error of CG = ",LA.norm(abs(v)-abs(x_opt_SD[0]),2));
 	plot_optimisation(RESIDUAL_CG,FUNCT_CG);
+	
+	kappa = LA.cond(M)
+	print("R^2 = ",(kappa-1.)/(kappa + 1.))
 
 
