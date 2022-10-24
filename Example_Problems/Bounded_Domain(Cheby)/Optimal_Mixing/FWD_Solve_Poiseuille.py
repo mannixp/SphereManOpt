@@ -1724,8 +1724,8 @@ def File_Manips(k):
 	return None;
 
 
-Adjoint_type = "Discrete";
-#Adjoint_type = "Continuous";
+#Adjoint_type = "Discrete";
+Adjoint_type = "Continuous";
 
 if Adjoint_type == "Discrete":
 
@@ -1747,7 +1747,7 @@ if __name__ == "__main__":
 	Nx = 256;   Nz = 128; T_opt = 5; dt = 5e-03;
 	E_0 = 0.02;
 
-	N_ITERS = 100; #int(T_opt/dt);
+	N_ITERS = int(T_opt/dt);
 
 	if(Adjoint_type=="Discrete"):
 		Nx = 3*Nx//2
@@ -1767,14 +1767,11 @@ if __name__ == "__main__":
 	args_f  = [domain, Re,Ri, N_ITERS, X_FWD_DICT,dt, s,Prandtl,δ];
 	args_IP = [domain,None];
 	
-	
-	sys.path.insert(0,'../../../')
-	
 	# 2) Test the gradient
-	from TestGrad import Adjoint_Gradient_Test
-	_, dUx0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
-	Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
-	sys.exit()
+	#from TestGrad import Adjoint_Gradient_Test
+	#_, dUx0  = Generate_IC(Nx,Nz,E_0=E_0,dealias_scale=dealias_scale);
+	#Adjoint_Gradient_Test(Ux0,dUx0, FWD_Solve,ADJ_Solve,Inner_Prod,args_f,args_IP,epsilon=1e-04)
+	#sys.exit()
 
 	# 3) Optimise for u0 = [u(x,z,t=0),w(x,z,t=0)]
 	from Sphere_Grad_Descent import Optimise_On_Multi_Sphere, plot_optimisation
