@@ -1,5 +1,7 @@
 # SphereManOpt: Gradient descent on a spherical manifold(s)
 
+[![DOI](https://zenodo.org/badge/453104430.svg)](https://zenodo.org/badge/latestdoi/453104430)
+
 Optimisation code to solve the minimisation problem:
 
 $\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \quad$  where  $\quad \mathcal{S} = \[ \boldsymbol{X} \quad | \quad \langle \boldsymbol{X}, \boldsymbol{X} \rangle = E \]$,
