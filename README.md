@@ -1,14 +1,12 @@
 # SphereManOpt: Gradient descent on a spherical manifold(s)
 
-This repository contains companion code for the article "Discrete adjoint-based control: A robust gradient
-descent procedure for optimisation with PDE and
-norm constraints" by P.M. Mannix, C.S. Skene, D. Auroux and F. Marcotte (2022).
-
 Optimisation code to solve the minimisation problem:
 
 $\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \quad$  where  $\quad \mathcal{S} = \[ \boldsymbol{X} \quad | \quad \langle \boldsymbol{X}, \boldsymbol{X} \rangle = E \]$,
 
-is the spherical manifold of radius $E$.
+is the spherical manifold of radius $E$. This repository contains companion code for the article "Discrete adjoint-based control: A robust gradient
+descent procedure for optimisation with PDE and
+norm constraints" by P.M. Mannix, C.S. Skene, D. Auroux and F. Marcotte (2022).
 
 ### Calling the optimiser
 
