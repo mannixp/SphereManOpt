@@ -6,9 +6,7 @@ Optimisation code to solve the minimisation problem:
 
 $\underset{\boldsymbol{X} \in \mathcal{S}}{\text{min}} \quad J(\boldsymbol{X}) \quad$  where  $\quad \mathcal{S} = \[ \boldsymbol{X} \quad | \quad \langle \boldsymbol{X}, \boldsymbol{X} \rangle = E \]$,
 
-is the spherical manifold of radius $E$. This repository contains companion code for the article "Discrete adjoint-based control: A robust gradient
-descent procedure for optimisation with PDE and
-norm constraints" by P.M. Mannix, C.S. Skene, D. Auroux and F. Marcotte (2022).
+is the spherical manifold of radius $E$.
 
 ### Calling the optimiser
 
@@ -113,6 +111,12 @@ corresponding to the Reynolds,Prandtl and Richardson numbers, the optimisation t
 
 optimises both the velocity and magnetic fields using 4 cores and plots the resulting solution.
 
+## Citation
+
+Please cite the following paper in any publication where you find the present codes useful:
+
+Paul M. Mannix, Calum S. Skene, Didier Auroux & Florence Marcotte, Discrete adjoint-based control: A robust gradient descent procedure for optimisation with PDE and norm constraints, Arxiv address.
+
 ## Acknowledgements
 
-P. M. M. and F. M. acknowledge support from the French program “T-ERC” from Agence Nationale de la Recherche (ANR) (Grant No. ANR-19-ERC7-0008). This work was also supported by the French government, through the UCAJEDI Investments in the Future project managed by the ANR under reference number ANR-15-IDEX-0001. C.S.S. acknowledges partial support from a grant from the Simons Foundation (Grant No. 662962, GF). He would also like to acknowledge support of funding from the European Union Horizon 2020 research and innovation programme (grant agreement no. D5S-DLV-786780). The authors are grateful to the OPAL infrastructure from Université Côte-d'Azur, Université Côte-d'Azur’s Center for High-Performance Computing and GENCI computer facilities for providing resources and support.
+P. M. M. and F. M. acknowledge support from the French program “T-ERC” from Agence Nationale de la Recherche (ANR) under grant agreement ANR-19-ERC7-0008). C. S. S. acknowledges partial support from a grant from the Simons Foundation (Grant No. 662962, GF). He would also like to acknowledge support of funding from the European Union Horizon 2020 research and innovation programme (grant agreement no. D5S-DLV-786780). This work was also supported by the French government, through the UCAJEDI Investments in the Future project managed by the ANR under grant agreement ANR-15-IDEX-0001.  This work was also supported by the French government, through the UCAJEDI Investments in the Future project managed by the ANR under grant agreement ANR-15-IDEX-0001. The authors are grateful to the OPAL infrastructure from Universit\'e C\^ote d’Azur, Universit\'e C\^ote d’Azur’s Center for High-Performance Computing computer facilities for providing resources and support.
