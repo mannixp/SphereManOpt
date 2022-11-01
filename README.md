@@ -115,7 +115,7 @@ optimises both the velocity and magnetic fields using 4 cores and plots the resu
 
 Please cite the following paper in any publication where you find the present codes useful:
 
-Paul M. Mannix, Calum S. Skene, Didier Auroux & Florence Marcotte, Discrete adjoint-based control: A robust gradient descent procedure for optimisation with PDE and norm constraints, Arxiv address.
+Paul M. Mannix, Calum S. Skene, Didier Auroux & Florence Marcotte, Discrete adjoint-based control: A robust gradient descent procedure for optimisation with PDE and norm constraints, https://arxiv.org/abs/2210.17194
 
 ## Acknowledgements
 
